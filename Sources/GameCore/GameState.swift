@@ -1,0 +1,250 @@
+import Foundation
+import Observation
+
+/// The game flow as explicit state — replaces the original's
+/// recursive menu functions.
+public enum Screen: Equatable, Sendable {
+    case title
+    case room
+    case encounter
+    case trader
+    case gameOver(reason: String, money: Int)
+}
+
+public enum EncounterPhase: Equatable, Sendable {
+    /// Choosing RUN / FIGHT / USE.
+    case choosing
+    /// Mid-fight: picking a weapon each round.
+    case fighting
+}
+
+public struct LogEntry: Identifiable, Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case narration, info, combat, warning, reward
+    }
+    public let id: UUID
+    public let text: String
+    public let kind: Kind
+
+    init(_ text: String, _ kind: Kind) {
+        self.id = UUID()
+        self.text = text
+        self.kind = kind
+    }
+}
+
+@Observable
+public final class GameState {
+    public let data: GameData
+    @ObservationIgnored var rng: GameRandom
+    @ObservationIgnored let saveStore: SaveStore
+
+    public internal(set) var screen: Screen = .title
+    public internal(set) var player = Player()
+    public internal(set) var inventory = Inventory()
+
+    // Current room
+    public internal(set) var roomName: String = ""
+    public internal(set) var doors: Int = 1
+    public internal(set) var hasLooted = false
+    /// True right after fleeing/winning a fight; blocks back-to-back
+    /// encounters and is consumed by the next room generation.
+    var previousEncounter = false
+
+    // Current encounter
+    public internal(set) var enemy: Enemy?
+    public internal(set) var encounterPhase: EncounterPhase = .choosing
+
+    // Current trader
+    public internal(set) var shopStock: ShopStock?
+    public internal(set) var hlRound: HLRound?
+
+    /// Message feed; the newest entry is typewriter-animated by the UI.
+    public internal(set) var log: [LogEntry] = []
+    /// Total rooms entered this run (UI flavour only).
+    public internal(set) var roomsVisited = 0
+
+    public init(data: GameData = .load(),
+                rng: GameRandom = SystemGameRandom(),
+                saveStore: SaveStore = FileSaveStore()) {
+        self.data = data
+        self.rng = rng
+        self.saveStore = saveStore
+    }
+
+    // MARK: - Logging
+
+    func say(_ text: String, _ kind: LogEntry.Kind = .narration) {
+        log.append(LogEntry(text, kind))
+        if log.count > 80 { log.removeFirst(log.count - 80) }
+    }
+
+    // MARK: - Run lifecycle
+
+    public func startNewGame() {
+        player = Player()
+        inventory = Inventory()
+        enemy = nil
+        shopStock = nil
+        hlRound = nil
+        previousEncounter = false
+        roomsVisited = 0
+        log = []
+        say("Welcome to LOST. Find your way out... or don't.", .narration)
+        generateRoom()
+    }
+
+    func gameOver(_ reason: String) {
+        screen = .gameOver(reason: reason, money: player.money)
+    }
+
+    public func returnToTitle() {
+        screen = .title
+    }
+
+    // MARK: - Room generation (the original `generation()`)
+
+    func generateRoom() {
+        enemy = nil
+        encounterPhase = .choosing
+        shopStock = nil
+        hlRound = nil
+        roomsVisited += 1
+
+        // Hunger/thirst decay: 50% chance to lose 1–10 of each.
+        if rng.int(in: 1...100) > 50 {
+            player.hunger -= rng.int(in: 1...10)
+            player.thirst -= rng.int(in: 1...10)
+        }
+        if player.hunger <= 0 {
+            gameOver("You ran out of hunger and died")
+            return
+        }
+        if player.thirst <= 0 {
+            gameOver("You ran out of thirst and died")
+            return
+        }
+        if player.hunger < 20 { say("⚠️ Your hunger is getting dangerously low!", .warning) }
+        if player.thirst < 20 { say("⚠️ Your thirst is getting dangerously low!", .warning) }
+
+        let traderRarity = rng.int(in: 1...170)
+        let encounterChance = rng.int(in: 1...130)
+        let enemyAppears = encounterChance < 25 && !previousEncounter
+        previousEncounter = false
+
+        if enemyAppears {
+            startEncounter()
+        } else if traderRarity < 20 {
+            startTrader()
+        } else {
+            roomName = rng.choice(data.roomNames)
+            doors = rng.int(in: 1...3)
+            hasLooted = false
+            screen = .room
+            say("You find yourself in a \(roomName) with \(doors) door\(doors == 1 ? "" : "s")", .narration)
+        }
+    }
+
+    /// Take door 1/2/3 — only valid if the room has that many doors.
+    public func takeDoor(_ number: Int) {
+        guard screen == .room, number >= 1, number <= doors else { return }
+        say("You head through door \(number)...", .info)
+        generateRoom()
+    }
+
+    // MARK: - Looting
+
+    public func loot() {
+        guard screen == .room else { return }
+        if hasLooted {
+            say("You have already looted this room!", .info)
+            return
+        }
+        hasLooted = true
+
+        // Fewer doors = luckier roll.
+        let lucky: Int
+        switch doors {
+        case 1: lucky = rng.int(in: 1...101)
+        case 2: lucky = rng.int(in: 1...76)
+        default: lucky = rng.int(in: 1...51)
+        }
+        guard lucky < 33 else {
+            say("Looks like you didn't find anything, unlucky.", .info)
+            return
+        }
+
+        let table = data.rooms[roomName] ?? []
+        guard !table.isEmpty else {
+            say("Looks like you didn't find anything, unlucky.", .info)
+            return
+        }
+        let itemID = rng.choice(table)
+
+        // Money brackets (de-overlapped, same intent as the original):
+        // key 101–125 -> £25–40, key 1–49 -> £15–25, key 50–100 -> nothing.
+        let key = rng.int(in: 1...125)
+        var money = 0
+        if key > 100 {
+            money = rng.int(in: 25...40)
+        } else if key < 50 {
+            money = rng.int(in: 15...25)
+        }
+
+        inventory.add(itemID)
+        player.money += money
+
+        let flavour = rng.choice([
+            "You peeked in a cupboard",
+            "You looked in a drawer",
+            "You opened a cabinet",
+        ])
+        var message = "\(flavour) and found \(ItemCatalog.label(itemID))"
+        if money > 0 { message += " & £\(money)!" }
+        say(message, .reward)
+    }
+
+    // MARK: - Using items
+
+    /// Usable from the room, an encounter, or the trader — same effects.
+    public func use(_ itemID: String) {
+        guard inventory.has(itemID) else {
+            say("You don't have a \(ItemCatalog.name(itemID)).", .info)
+            return
+        }
+        if data.weapons[itemID] != nil {
+            say("You can't use a weapon when there is no enemies to use it on", .info)
+            return
+        }
+        if let gains = data.stats.maxhealth[itemID] {
+            let gain = rng.choice(gains)
+            player.maxHealth += gain
+            inventory.remove(itemID)
+            say("You used \(ItemCatalog.label(itemID)) and gained +\(gain) max health (now \(player.maxHealth)).", .reward)
+        } else if let gains = data.stats.currenthealth[itemID] {
+            var gain = rng.choice(gains)
+            if player.currentHealth + gain > player.maxHealth {
+                gain = player.maxHealth - player.currentHealth
+            }
+            player.currentHealth += gain
+            inventory.remove(itemID)
+            say("You used \(ItemCatalog.label(itemID)) and healed +\(gain) health (now \(player.currentHealth)/\(player.maxHealth)).", .reward)
+        } else if let hungerGains = data.stats.hunger[itemID], let thirstGains = data.stats.thirst[itemID] {
+            let hungerGain = rng.choice(hungerGains)
+            let thirstGain = rng.choice(thirstGains)
+            player.hunger = min(100, player.hunger + hungerGain)
+            player.thirst = min(100, player.thirst + thirstGain)
+            inventory.remove(itemID)
+            say("You consumed \(ItemCatalog.label(itemID)): +\(hungerGain) hunger, +\(thirstGain) thirst (hunger \(player.hunger), thirst \(player.thirst)).", .reward)
+        } else {
+            say("You can't use that.", .info)
+        }
+    }
+
+    // MARK: - Dropping items
+
+    public func drop(_ itemID: String) {
+        guard inventory.remove(itemID) else { return }
+        say("You dropped a \(ItemCatalog.label(itemID)).", .info)
+    }
+}

@@ -1,0 +1,7 @@
+{
+  "Kitchen": ["knife", "carrot", "tomato", "chocolate", "fork", "waterbottle"],
+  "Bedroom": ["bat", "chocolate", "waterbottle"],
+  "Bathroom": ["medicine", "waterbottle", "bandage", "bandage", "bandage", "medkit", "medkit"],
+  "Basement": ["crowbar", "torch", "waterbottle", "scrapmetal"],
+  "Garden": ["branch", "shovel", "mushroom", "mushroom"]
+}
