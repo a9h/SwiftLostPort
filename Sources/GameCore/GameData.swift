@@ -33,12 +33,16 @@ public struct GameData: Sendable {
     }
 
     private static func decode<T: Decodable>(_ name: String, from bundle: Bundle) -> T {
-        guard let url = bundle.url(forResource: name, withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode(T.self, from: data) else {
-            fatalError("Missing or malformed game data resource: \(name).json")
+        // Try the primary bundle first, then Bundle.main (for simulator compatibility).
+        let bundles = [bundle, Bundle.main]
+        for tryBundle in bundles {
+            if let url = tryBundle.url(forResource: name, withExtension: "json"),
+               let data = try? Data(contentsOf: url),
+               let decoded = try? JSONDecoder().decode(T.self, from: data) {
+                return decoded
+            }
         }
-        return decoded
+        fatalError("Missing or malformed game data resource: \(name).json")
     }
 }
 
