@@ -35,18 +35,22 @@ public enum Difficulty: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// A live enemy. HP, damage and coin ranges are baked in at creation time,
-/// already scaled for depth (and boss status), so combat just rolls within them.
+/// A live enemy. HP, damage and coin ranges are baked in at creation time so
+/// combat just rolls within them. Bosses carry a `boss` kind plus the runtime
+/// state for their specials (Plague Doctor's one-time heal).
 public struct Enemy: Equatable, Sendable {
     public let difficulty: Difficulty
-    public let isBoss: Bool
+    public let boss: BossKind?
     public let maxHP: Int
     public var hp: Int
     public let damageRange: ClosedRange<Int>
     public let coinRange: ClosedRange<Int>
+    /// True once the Plague Doctor has used its one-time self-heal.
+    public var hasHealed = false
 
-    public var emoji: String { isBoss ? "👺" : difficulty.emoji }
-    public var displayName: String { isBoss ? "BOSS" : difficulty.rawValue }
+    public var isBoss: Bool { boss != nil }
+    public var emoji: String { boss?.emoji ?? difficulty.emoji }
+    public var displayName: String { boss?.displayName ?? difficulty.rawValue }
 
     /// Scales a range by a multiplier, rounding each bound and keeping it valid.
     static func scale(_ range: ClosedRange<Int>, by multiplier: Double) -> ClosedRange<Int> {
@@ -66,7 +70,17 @@ public struct Enemy: Equatable, Sendable {
         let damage = difficulty.baseDamageRange
         let coinMultiplier = 1.0 + Double(Balance.Depth.effectiveDepth(depth)) * Balance.Depth.coinRampPerRoom
         let coins = scale(difficulty.baseCoinRange, by: coinMultiplier)
-        return Enemy(difficulty: difficulty, isBoss: isBoss, maxHP: hp, hp: hp,
+        return Enemy(difficulty: difficulty, boss: nil, maxHP: hp, hp: hp,
                      damageRange: damage, coinRange: coins)
+    }
+
+    /// Builds a boss from its fixed stat block (Part 3). When `maxDamage` is
+    /// active (post-cycle), the damage range collapses to its top value so every
+    /// hit deals maximum.
+    public static func makeBoss(_ kind: BossKind, maxDamage: Bool) -> Enemy {
+        let s = kind.stats
+        let damage = maxDamage ? (s.damage.upperBound...s.damage.upperBound) : s.damage
+        return Enemy(difficulty: .hard, boss: kind, maxHP: s.hp, hp: s.hp,
+                     damageRange: damage, coinRange: s.coins)
     }
 }

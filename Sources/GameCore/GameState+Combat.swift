@@ -8,25 +8,31 @@ public extension GameState {
     }
 
     internal func startEncounter() {
-        // A pending boss overrides the normal difficulty roll and is consumed.
-        let isBoss = bossPending
-        bossPending = false
-        let difficulty = isBoss ? .hard : Difficulty.roll(using: &rng)
-        let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: isBoss, using: &rng)
+        let difficulty = Difficulty.roll(using: &rng)
+        let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: false, using: &rng)
         enemy = newEnemy
         encounterPhase = .choosing
         screen = .encounter
-        if isBoss {
-            say("A BOSS blocks your path! \(newEnemy.emoji) You can RUN, FIGHT or USE an item.", .narration)
-            say("The boss has \(newEnemy.maxHP) health — this won't be easy.", .combat)
-        } else {
-            say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
-            say("The enemy is \(newEnemy.displayName) with \(newEnemy.maxHP) health \(newEnemy.emoji)", .combat)
+        say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
+        say("The enemy is \(newEnemy.displayName) with \(newEnemy.maxHP) health \(newEnemy.emoji)", .combat)
+    }
+
+    /// A fixed-sequence boss at its milestone depth (Part 3).
+    internal func startBossEncounter(_ kind: BossKind) {
+        let boss = Enemy.makeBoss(kind, maxDamage: maxDamageFlag)
+        enemy = boss
+        encounterPhase = .choosing
+        screen = .encounter
+        let prefix = maxDamageFlag ? "💀 " : ""
+        say(kind.intro, .narration)
+        say("\(prefix)\(kind.decoration)  —  \(kind.displayName), \(boss.maxHP) HP", .combat)
+        if maxDamageFlag {
+            say("Something is different this time… the air itself feels lethal.", .warning)
         }
     }
 
     /// One armour-reduced enemy hit. Returns the damage dealt to the player.
-    /// A landed hit may also apply poison (B2).
+    /// A landed hit may also apply poison (B2 / the Ghoul's special).
     func enemyHitsPlayer() -> Int {
         guard let enemy else { return 0 }
         let raw = rng.int(in: enemy.damageRange)
@@ -70,7 +76,8 @@ public extension GameState {
         say("Choose a weapon to attack with!", .combat)
     }
 
-    /// One round of combat: your hit, then (if it survives) the enemy's.
+    /// One round of combat: (boss pre-round special →) your hit → (specials →)
+    /// the enemy's hit(s).
     func attack(with weaponID: String) {
         guard screen == .encounter, enemy != nil else { return }
 
@@ -84,11 +91,17 @@ public extension GameState {
             return
         }
 
+        // Packmaster summon rolls at the very start of the round.
+        if enemy?.boss == .packmaster {
+            rollPackmasterSummon()
+            if player.currentHealth <= 0 { gameOver("The Packmaster's pack overwhelmed you"); return }
+        }
+
         if weaponID == "torch" {
-            // Special: 25% chance to scare a normal enemy off (consumes the
-            // torch). Bosses are immune — the scare roll is skipped entirely.
-            if enemy?.isBoss == true {
-                say("The torch flickers, but the boss is unbothered.", .combat)
+            // 25% scare. The Warlord shrugs it off; other bosses can be scared
+            // (they simply leave — not defeated, so the gate re-spawns them).
+            if enemy?.boss?.isTorchImmune == true {
+                say("The Warlord bats the torch aside, unimpressed.", .combat)
             } else if rng.int(in: 1...100) < 25 {
                 inventory.remove("torch")
                 say("You waved your torch and scared the enemy off! 🔥", .reward)
@@ -100,45 +113,134 @@ public extension GameState {
                 say("The enemy did not care about your torch", .combat)
             }
         } else if let damages = data.weapons[weaponID], !damages.isEmpty {
-            let damage = rng.choice(damages)
-            enemy?.hp -= damage
-            say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
-            // The weapon wears with use; the torch is exempt (returns nil).
-            if inventory.degradeWeapon(weaponID) == true {
-                say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
+            // The Cowboy may dodge the swing entirely.
+            if enemy?.boss == .cowboy && rng.int(in: 1...100) < Balance.Bosses.cowboyDodgePercent {
+                say("The Cowboy sidesteps your swing!", .combat)
+            } else {
+                let damage = rng.choice(damages)
+                enemy?.hp -= damage
+                say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
+                if inventory.degradeWeapon(weaponID) == true {
+                    say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
+                }
+                rollPlagueDoctorHeal()
             }
         }
 
         if let enemy, enemy.hp <= 0 {
-            let coins = rng.int(in: enemy.coinRange)
-            player.money += coins
-            if enemy.isBoss {
-                let loot = rng.choice(Balance.Depth.bossLootPool)
-                inventory.add(loot)
-                say("You felled the boss! It dropped \(ItemCatalog.label(loot)) and £\(coins) 💷", .reward)
-            } else {
-                say("You killed the enemy and ran to another room, and looted £\(coins) 💷", .reward)
-            }
-            self.enemy = nil
-            previousEncounter = true
-            generateRoom()
+            defeatEnemy(enemy)
             return
         }
 
-        let damage = enemyHitsPlayer()
-        say("The enemy hit you back for \(damage) — you have \(player.currentHealth) health remaining", .combat)
-        checkCombatDeath()
+        enemyCounterAttack()
+        if screen != .encounter { return } // died, or fight resolved
 
-        // If the player's last weapon broke this round, return to the
-        // RUN/FIGHT/USE menu so the no-weapon path applies next.
-        if screen == .encounter, ownedWeapons.isEmpty {
+        // If the player's last weapon broke this round, return to the menu so
+        // the no-weapon path applies next.
+        if ownedWeapons.isEmpty {
             encounterPhase = .choosing
             say("You're out of weapons!", .warning)
         }
     }
 
-    /// Back out of the weapon picker to RUN/FIGHT/USE (UI convenience;
-    /// the enemy doesn't get a free hit for hesitating).
+    // MARK: - Enemy / boss counter-attacks
+
+    /// The enemy's hit(s) back. The Warlord strikes twice per round.
+    private func enemyCounterAttack() {
+        guard let enemy else { return }
+        if enemy.boss == .warlord {
+            let d1 = enemyHitsPlayer()
+            if player.currentHealth <= 0 {
+                say("The Warlord's first blow lands for \(d1)…", .combat)
+                checkCombatDeath()
+                return
+            }
+            let d2 = enemyHitsPlayer()
+            say("The Warlord strikes twice — \(d1) then \(d2)! You have \(player.currentHealth) health left", .combat)
+        } else {
+            let damage = enemyHitsPlayer()
+            say("The enemy hit you back for \(damage) — you have \(player.currentHealth) health remaining", .combat)
+        }
+        checkCombatDeath()
+    }
+
+    /// The Packmaster's 20% per-round summon: a weak creature that bites once
+    /// (armour-reduced) then vanishes. Damage is fixed at max when post-cycle.
+    private func rollPackmasterSummon() {
+        guard rng.int(in: 1...100) <= Balance.Bosses.packmasterSummonPercent else { return }
+        let summonHP = rng.int(in: Balance.Bosses.packmasterSummonHP) // flavour only
+        let raw = maxDamageFlag
+            ? Balance.Bosses.packmasterSummonDamage.upperBound
+            : rng.int(in: Balance.Bosses.packmasterSummonDamage)
+        let damage = player.armour.reducedDamage(raw)
+        player.currentHealth -= damage
+        say("The Packmaster lets out a howl — a \(summonHP)-HP creature lunges and bites for \(damage)!", .combat)
+    }
+
+    /// The Plague Doctor heals once, the first time it drops below 50% HP.
+    private func rollPlagueDoctorHeal() {
+        guard let e = enemy, e.boss == .plagueDoctor, !e.hasHealed, e.hp > 0,
+              Double(e.hp) < Balance.Bosses.plagueDoctorHealFraction * Double(e.maxHP) else { return }
+        let heal = rng.int(in: Balance.Bosses.plagueDoctorHealRange)
+        enemy?.hp = min(e.maxHP, e.hp + heal)
+        enemy?.hasHealed = true
+        say("The Plague Doctor reaches into their coat and drinks a vial… their wounds close.", .warning)
+    }
+
+    // MARK: - Defeat & drops
+
+    private func defeatEnemy(_ enemy: Enemy) {
+        let coins = rng.int(in: enemy.coinRange)
+        player.money += coins
+        if let kind = enemy.boss {
+            applyBossDrop(kind)
+            say("You felled \(kind.displayName)! It dropped £\(coins) 💷", .reward)
+            advanceBossSequence()
+        } else {
+            say("You killed the enemy and ran to another room, and looted £\(coins) 💷", .reward)
+        }
+        self.enemy = nil
+        previousEncounter = true
+        generateRoom()
+    }
+
+    private func applyBossDrop(_ kind: BossKind) {
+        switch kind {
+        case .cowboy:
+            if rng.int(in: 1...100) <= 50 {
+                let weapon = rng.int(in: 1...2) == 1 ? "sword" : "longsword"
+                inventory.add(weapon)
+                say("\(kind.displayName) dropped a \(ItemCatalog.label(weapon))!", .reward)
+            }
+        case .ghoul:
+            inventory.add("medkit")
+            say("\(kind.displayName) dropped a \(ItemCatalog.label("medkit"))!", .reward)
+        case .plagueDoctor:
+            inventory.add("medicine")
+            inventory.add("pills")
+            say("\(kind.displayName) dropped \(ItemCatalog.label("medicine")) and \(ItemCatalog.label("pills"))!", .reward)
+        case .warlord:
+            let armour = rng.int(in: 1...2) == 1 ? "ironHelmet" : "ironChestplate"
+            inventory.add(armour)
+            say("\(kind.displayName) dropped \(ItemCatalog.label(armour))!", .reward)
+        case .packmaster:
+            let drop = rng.choice(Balance.Bosses.packmasterDropPool)
+            inventory.add(drop)
+            say("\(kind.displayName) dropped \(ItemCatalog.label(drop))!", .reward)
+        }
+    }
+
+    /// Advance to the next boss, wrapping the cycle and arming max-damage.
+    private func advanceBossSequence() {
+        bossSequenceIndex = (bossSequenceIndex + 1) % Balance.Bosses.sequenceCount
+        nextBossDepth += Balance.Bosses.depthInterval
+        if bossSequenceIndex == 0 {
+            maxDamageFlag = true
+            say("You've bested them all once… but something tells you they'll be back, and angrier.", .warning)
+        }
+    }
+
+    /// Back out of the weapon picker to RUN/FIGHT/USE.
     func stopFighting() {
         guard screen == .encounter else { return }
         encounterPhase = .choosing

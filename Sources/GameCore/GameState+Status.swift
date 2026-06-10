@@ -7,8 +7,9 @@ public extension GameState {
     /// there's a non-zero chance, so easy-enemy combat stays deterministic.
     internal func rollPoison(from enemy: Enemy) {
         let chance: Int
-        if enemy.isBoss {
-            chance = Balance.Poison.bossChancePercent
+        if let boss = enemy.boss {
+            // Only the Ghoul inflicts poison among bosses (its special).
+            chance = boss == .ghoul ? Balance.Bosses.ghoulPoisonPercent : 0
         } else {
             switch enemy.difficulty {
             case .hard: chance = Balance.Poison.hardChancePercent

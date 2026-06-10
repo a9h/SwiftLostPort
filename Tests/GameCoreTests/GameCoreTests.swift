@@ -139,50 +139,118 @@ final class GameCoreTests: XCTestCase {
         XCTAssertLessThan(mid, 200)
     }
 
-    // MARK: - Bosses (interim — replaced in Part 3)
+    // MARK: - Boss system (Part 3)
 
-    func testBossCadence() {
-        // Bosses at 50, 85, 120; never at the old 10/20/30/40 milestones.
-        XCTAssertTrue(Balance.Depth.isBossDepth(50))
-        XCTAssertTrue(Balance.Depth.isBossDepth(85))
-        XCTAssertTrue(Balance.Depth.isBossDepth(120))
-        for d in [10, 20, 30, 40, 49, 51, 84] {
-            XCTAssertFalse(Balance.Depth.isBossDepth(d), "depth \(d) should not be a boss")
-        }
+    func testBossStatBlocksAndSequenceOrder() {
+        XCTAssertEqual(BossKind.allCases.map(\.self), [.cowboy, .ghoul, .plagueDoctor, .warlord, .packmaster])
+        XCTAssertEqual(Enemy.makeBoss(.cowboy, maxDamage: false).maxHP, 360)
+        XCTAssertEqual(Enemy.makeBoss(.cowboy, maxDamage: false).damageRange, 18...28)
+        XCTAssertEqual(Enemy.makeBoss(.ghoul, maxDamage: false).maxHP, 320)
+        XCTAssertEqual(Enemy.makeBoss(.plagueDoctor, maxDamage: false).maxHP, 340)
+        XCTAssertEqual(Enemy.makeBoss(.warlord, maxDamage: false).maxHP, 380)
+        XCTAssertEqual(Enemy.makeBoss(.warlord, maxDamage: false).damageRange, 12...20)
+        XCTAssertEqual(Enemy.makeBoss(.packmaster, maxDamage: false).maxHP, 340)
     }
 
-    func testBossSpawnsAtMilestone() {
-        // Under the 1:2 ratio, depth 50 = room 100. Walk room 99 -> 100.
+    func testMaxDamageCollapsesBossRangeToTop() {
+        XCTAssertEqual(Enemy.makeBoss(.cowboy, maxDamage: true).damageRange, 28...28)
+        XCTAssertEqual(Enemy.makeBoss(.warlord, maxDamage: true).damageRange, 20...20)
+    }
+
+    func testBossGateSpawnsCowboyAtDepth50() {
+        // depth 50 = room 100. Boss spawns regardless of the previous flag.
         let game = startInRoom(doors: 1, thenScript: [])
         game.roomsExplored = 99
-        game.bossPending = false
-        game.previousEncounter = false
-        // generateRoom: decay 50(no), trader 100(no), encounter 10(<25 yes).
-        game.rng = ScriptedGameRandom([50, 100, 10])
+        game.previousEncounter = true
+        game.rng = ScriptedGameRandom([50, 100, 100]) // decay/trader/encounter ignored for boss
         game.takeDoor(1)
-        XCTAssertEqual(game.roomsExplored, 100)
         XCTAssertEqual(game.depth, 50)
         XCTAssertEqual(game.screen, .encounter)
-        XCTAssertEqual(game.enemy?.isBoss, true)
-        XCTAssertFalse(game.bossPending) // consumed
+        XCTAssertEqual(game.enemy?.boss, .cowboy)
     }
 
-    func testTorchCannotScareBoss() {
+    func testBossDefeatAdvancesSequenceWrapsAndArmsMaxDamage() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("sword")
+        game.bossSequenceIndex = 4 // Packmaster is next; defeating it wraps to 0
+        game.nextBossDepth = 50
+        game.maxDamageFlag = false
+        game.startBossEncounter(.packmaster)
+        game.enemy?.hp = 1
+        game.beginFight()
+        // summon 100(none), sword idx0=58 (kills), coins 130, drop idx0=steak,
+        // then a plain next room.
+        game.rng = ScriptedGameRandom([100, 0, 130, 0, 50, 100, 100, 0, 1, 100])
+        game.attack(with: "sword")
+        XCTAssertEqual(game.bossSequenceIndex, 0)
+        XCTAssertEqual(game.nextBossDepth, 100)
+        XCTAssertTrue(game.maxDamageFlag) // wrapped a full cycle
+        XCTAssertTrue(game.inventory.has("steak")) // packmaster drop
+        XCTAssertEqual(game.player.money, 50 + 130)
+    }
+
+    func testCowboyDodge() {
+        // Dodge (roll < 50): the swing misses, no damage.
+        let dodged = startInRoom(doors: 1, thenScript: [])
+        dodged.inventory.add("sword")
+        dodged.startBossEncounter(.cowboy)
+        dodged.beginFight()
+        dodged.rng = ScriptedGameRandom([10, 18]) // dodge 10, counter raw 18
+        dodged.attack(with: "sword")
+        XCTAssertEqual(dodged.enemy?.hp, 360)
+        XCTAssertEqual(dodged.player.currentHealth, 100 - 16) // 18 -> 16 after flat
+
+        // No dodge (roll >= 50): the hit lands.
+        let hit = startInRoom(doors: 1, thenScript: [])
+        hit.inventory.add("sword")
+        hit.startBossEncounter(.cowboy)
+        hit.beginFight()
+        hit.rng = ScriptedGameRandom([50, 0, 18]) // no dodge, sword idx0=58, counter 18
+        hit.attack(with: "sword")
+        XCTAssertEqual(hit.enemy?.hp, 360 - 58)
+    }
+
+    func testPlagueDoctorHealsOnceBelowHalf() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("longsword")
+        game.startBossEncounter(.plagueDoctor)
+        game.enemy?.hp = 175 // just above half (170)
+        game.beginFight()
+        // sword idx0=80 -> 95 (<170, heals 40 -> 135); counter 20.
+        game.rng = ScriptedGameRandom([0, 40, 20])
+        game.attack(with: "longsword")
+        XCTAssertEqual(game.enemy?.hp, 135)
+        XCTAssertEqual(game.enemy?.hasHealed, true)
+        // Below half again: no second heal.
+        game.enemy?.hp = 160
+        game.rng = ScriptedGameRandom([0, 20]) // sword idx0=80, counter 20
+        game.attack(with: "longsword")
+        XCTAssertEqual(game.enemy?.hp, 80)
+    }
+
+    func testWarlordHitsTwiceAndIsTorchImmune() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("torch")
-        game.depth = 50
-        game.bossPending = true
-        game.startEncounter()
-        XCTAssertEqual(game.enemy?.isBoss, true)
-        let bossHPBefore = game.enemy?.hp
+        game.startBossEncounter(.warlord)
         game.beginFight()
-        // Even a "scare" roll of 1 must NOT remove the boss.
-        game.rng = ScriptedGameRandom([1])
+        game.rng = ScriptedGameRandom([12, 20]) // two warlord hits, raw 12 and 20
         game.attack(with: "torch")
-        XCTAssertEqual(game.screen, .encounter)
-        XCTAssertNotNil(game.enemy)
-        XCTAssertEqual(game.enemy?.hp, bossHPBefore) // torch deals no damage
-        XCTAssertTrue(game.inventory.has("torch")) // not consumed
+        XCTAssertEqual(game.enemy?.hp, 380) // torch did nothing
+        XCTAssertTrue(game.inventory.has("torch")) // immune -> not scared/consumed
+        XCTAssertEqual(game.player.currentHealth, 100 - 10 - 18) // two armour-reduced hits
+    }
+
+    func testPackmasterSummonDealsExtraDamage() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("knife")
+        game.startBossEncounter(.packmaster)
+        game.beginFight()
+        // summon 5(<=20 yes), summonHP 35, summon dmg 10->8; knife idx0=40;
+        // counter 15 -> 13.
+        game.rng = ScriptedGameRandom([5, 35, 10, 0, 15])
+        game.attack(with: "knife")
+        XCTAssertEqual(game.enemy?.hp, 340 - 40)
+        XCTAssertEqual(game.player.currentHealth, 100 - 8 - 13)
     }
 
     func testCombatRoundDealsWeaponDamageAndArmourReducedCounterhit() {
@@ -691,9 +759,11 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("scrapmetal", count: 4)
         game.player.money = 123
         game.player.armour.head = 20
-        // New state: depth, a worn weapon, active poison.
+        // New state: depth, boss sequence, a worn weapon, active poison.
         game.depth = 14
-        game.bossPending = true
+        game.nextBossDepth = 100
+        game.bossSequenceIndex = 1
+        game.maxDamageFlag = true
         _ = game.inventory.degradeWeapon("knife") // one knife now 14/15
         game.applyPoison()
         game.saveGame(slot: 1)
@@ -714,7 +784,9 @@ final class GameCoreTests: XCTestCase {
         // New state restored intact.
         XCTAssertEqual(game.depth, 14)
         XCTAssertEqual(game.roomsExplored, 1)
-        XCTAssertTrue(game.bossPending)
+        XCTAssertEqual(game.nextBossDepth, 100)
+        XCTAssertEqual(game.bossSequenceIndex, 1)
+        XCTAssertTrue(game.maxDamageFlag)
         XCTAssertEqual(game.player.poisonRemaining, 3)
         let durabilities = game.inventory.instances(of: "knife").compactMap { $0.durability }.sorted()
         XCTAssertEqual(durabilities, [14, 15]) // worn knife persisted

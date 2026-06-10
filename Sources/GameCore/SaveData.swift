@@ -5,9 +5,10 @@ import Foundation
 /// and the current room. New fields added by the update default gracefully
 /// when an older save (lower `version`) is loaded.
 public struct SaveData: Codable, Equatable, Sendable {
-    /// Bumped whenever the save shape changes. v1 = original; v2 = update
-    /// (depth/boss, durability, status effects, room modifier, trader type).
-    public static let currentVersion = 2
+    /// Bumped whenever the save shape changes. v1 = original; v2 = first update
+    /// (depth, durability, status effects, room modifier); v3 = boss sequence
+    /// (nextBossDepth/bossSequenceIndex/maxDamageFlag) + 1:2 ratio.
+    public static let currentVersion = 3
 
     public var version: Int
     public var player: Player
@@ -21,11 +22,15 @@ public struct SaveData: Codable, Equatable, Sendable {
 
     // v2 additions
     public var depth: Int
-    public var bossPending: Bool
-    /// Per-instance weapons. In v2 saves `inventoryCounts` holds only
+    /// Per-instance weapons. In v2+ saves `inventoryCounts` holds only
     /// non-weapon stackables; v1 saves kept weapons in `inventoryCounts`.
     public var weaponInstances: [WeaponInstance]
     public var roomModifier: RoomModifier
+
+    // v3 additions (boss sequence)
+    public var nextBossDepth: Int
+    public var bossSequenceIndex: Int
+    public var maxDamageFlag: Bool
 
     public init(version: Int = SaveData.currentVersion,
                 player: Player,
@@ -37,9 +42,11 @@ public struct SaveData: Codable, Equatable, Sendable {
                 roomsExplored: Int,
                 savedAt: Date,
                 depth: Int,
-                bossPending: Bool,
                 weaponInstances: [WeaponInstance],
-                roomModifier: RoomModifier) {
+                roomModifier: RoomModifier,
+                nextBossDepth: Int,
+                bossSequenceIndex: Int,
+                maxDamageFlag: Bool) {
         self.version = version
         self.player = player
         self.inventoryCounts = inventoryCounts
@@ -50,9 +57,11 @@ public struct SaveData: Codable, Equatable, Sendable {
         self.roomsExplored = roomsExplored
         self.savedAt = savedAt
         self.depth = depth
-        self.bossPending = bossPending
         self.weaponInstances = weaponInstances
         self.roomModifier = roomModifier
+        self.nextBossDepth = nextBossDepth
+        self.bossSequenceIndex = bossSequenceIndex
+        self.maxDamageFlag = maxDamageFlag
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,10 +77,13 @@ public struct SaveData: Codable, Equatable, Sendable {
         savedAt = try c.decode(Date.self, forKey: .savedAt)
         // v2 fields: default for older saves. Depth falls back to roomsExplored
         // so an old run keeps a sensible difficulty when resumed.
-        depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsExplored
-        bossPending = try c.decodeIfPresent(Bool.self, forKey: .bossPending) ?? false
+        depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? (roomsExplored / 2)
         weaponInstances = try c.decodeIfPresent([WeaponInstance].self, forKey: .weaponInstances) ?? []
         roomModifier = try c.decodeIfPresent(RoomModifier.self, forKey: .roomModifier) ?? .none
+        // v3 boss fields: default a fresh sequence for older saves.
+        nextBossDepth = try c.decodeIfPresent(Int.self, forKey: .nextBossDepth) ?? Balance.Bosses.depthStart
+        bossSequenceIndex = try c.decodeIfPresent(Int.self, forKey: .bossSequenceIndex) ?? 0
+        maxDamageFlag = try c.decodeIfPresent(Bool.self, forKey: .maxDamageFlag) ?? false
     }
 }
 
@@ -155,9 +167,11 @@ public extension GameState {
             roomsExplored: roomsExplored,
             savedAt: Date(),
             depth: depth,
-            bossPending: bossPending,
             weaponInstances: inventory.weapons,
-            roomModifier: roomModifier
+            roomModifier: roomModifier,
+            nextBossDepth: nextBossDepth,
+            bossSequenceIndex: bossSequenceIndex,
+            maxDamageFlag: maxDamageFlag
         )
         do {
             try saveStore.save(data, slot: slot)
@@ -186,7 +200,9 @@ public extension GameState {
         previousEncounter = saved.previousEncounter
         roomsExplored = saved.roomsExplored
         depth = saved.depth
-        bossPending = saved.bossPending
+        nextBossDepth = saved.nextBossDepth
+        bossSequenceIndex = saved.bossSequenceIndex
+        maxDamageFlag = saved.maxDamageFlag
         roomModifier = saved.roomModifier
         enemy = nil
         shopStock = nil

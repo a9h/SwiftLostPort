@@ -53,9 +53,14 @@ public final class GameState: ObservableObject {
     /// Internal scaling authority (B1), derived as `roomsExplored / 2` — depth
     /// advances once every two rooms. Never shown to the player directly.
     @Published public internal(set) var depth = 0
-    /// Armed when depth crosses a boss milestone; the next enemy
-    /// encounter is forced to be a boss and the flag is consumed.
-    @Published var bossPending = false
+    /// Boss sequence state (Part 3). Once depth reaches `nextBossDepth`, every
+    /// encounter is forced to be the boss at `bossSequenceIndex` until it is
+    /// defeated; then the index advances (wrapping) and the milestone moves on.
+    @Published public internal(set) var nextBossDepth = Balance.Bosses.depthStart
+    @Published public internal(set) var bossSequenceIndex = 0
+    /// Set once the player completes a full boss cycle — all later boss damage
+    /// is fixed at maximum.
+    @Published public internal(set) var maxDamageFlag = false
 
     // Current encounter
     @Published public internal(set) var enemy: Enemy?
@@ -95,7 +100,9 @@ public final class GameState: ObservableObject {
         hlRound = nil
         previousEncounter = false
         depth = 0
-        bossPending = false
+        nextBossDepth = Balance.Bosses.depthStart
+        bossSequenceIndex = 0
+        maxDamageFlag = false
         roomModifier = .none
         roomsExplored = 0
         log = []
@@ -121,10 +128,6 @@ public final class GameState: ObservableObject {
         roomModifier = .none
         roomsExplored += 1
         depth = roomsExplored / 2 // depth advances once every two rooms
-        // Crossing a boss milestone arms the next enemy encounter as a boss.
-        // Only on the room where depth just incremented (even room count), so a
-        // milestone arms exactly once even though depth repeats for two rooms.
-        if roomsExplored % 2 == 0 && Balance.Depth.isBossDepth(depth) { bossPending = true }
 
         // Hunger/thirst decay: 50% chance to lose 1–10 of each.
         if rng.int(in: 1...100) > 50 {
@@ -150,7 +153,12 @@ public final class GameState: ObservableObject {
         let enemyAppears = encounterChance < 25 && !previousEncounter
         previousEncounter = false
 
-        if enemyAppears {
+        // A boss gate: once depth reaches the milestone, the boss is forced
+        // every room (bypassing the previous flag and the encounter roll) until
+        // it is defeated.
+        if depth >= nextBossDepth {
+            startBossEncounter(BossKind(rawValue: bossSequenceIndex) ?? .cowboy)
+        } else if enemyAppears {
             startEncounter()
         } else if traderRarity < 20 {
             startTrader()

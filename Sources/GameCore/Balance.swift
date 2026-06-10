@@ -21,34 +21,54 @@ public enum Balance {
         /// No depth scaling at all below this depth — a long, fair early game
         /// where the player gathers gear before threats grow.
         public static let scalingStartDepth = 30
-        /// Per-room HP ramp past the threshold (+1.5%/room).
-        public static let hpRampPerRoom = 0.015
-        /// Per-room damage ramp past the threshold (+1.2%/room).
+        /// Per-room damage ramp past the threshold (used by trap rooms).
         public static let damageRampPerRoom = 0.012
         /// Per-room coin ramp past the threshold (+3%/room) — rewards still grow.
         public static let coinRampPerRoom = 0.03
-
-        /// The first boss appears at this depth...
-        public static let firstBossDepth = 50
-        /// ...then every this-many depths after (50, 85, 120, ...).
-        public static let bossInterval = 35
-        /// Boss HP = hard-tier HP × this (before depth multiplier).
-        public static let bossHPMultiplier = 3
-        /// Boss damage = hard-tier range, depth-scaled, × this.
-        public static let bossDamageMultiplier = 1.25
-        /// Boss coin reward range (before depth multiplier).
-        public static let bossCoinRange = 200...350
-        /// Curated guaranteed drop pool on boss death.
-        public static let bossLootPool = ["ironHelmet", "ironChestplate", "ironBoots", "sword", "longsword", "medkit"]
 
         /// Depth measured past the scaling threshold (0 below it).
         public static func effectiveDepth(_ depth: Int) -> Int {
             max(0, depth - scalingStartDepth)
         }
-        /// True when `depth` is a boss milestone (50, 85, 120, ...).
-        public static func isBossDepth(_ depth: Int) -> Bool {
-            depth >= firstBossDepth && (depth - firstBossDepth) % bossInterval == 0
+    }
+
+    // MARK: - Boss system (Part 3: fixed sequence + specials)
+
+    public enum Bosses {
+        /// First boss at this depth (= 100 rooms under the 1:2 ratio)...
+        public static let depthStart = 50
+        /// ...then every this-many depths after (50, 100, 150, 200, 250).
+        public static let depthInterval = 50
+        /// Number of bosses in the cycle before it repeats.
+        public static let sequenceCount = 5
+
+        /// One boss's tunable stat block.
+        public struct Stats {
+            public let hp: Int
+            public let damage: ClosedRange<Int>
+            public let coins: ClosedRange<Int>
         }
+
+        public static let cowboy = Stats(hp: 360, damage: 18...28, coins: 150...200)
+        public static let ghoul = Stats(hp: 320, damage: 18...30, coins: 100...150)
+        public static let plagueDoctor = Stats(hp: 340, damage: 20...32, coins: 120...160)
+        /// Warlord hits twice per round at this per-hit range.
+        public static let warlord = Stats(hp: 380, damage: 12...20, coins: 140...180)
+        public static let packmaster = Stats(hp: 340, damage: 15...25, coins: 130...170)
+
+        // Specials
+        public static let cowboyDodgePercent = 50
+        public static let ghoulPoisonPercent = 50
+        public static let plagueDoctorHealFraction = 0.5
+        public static let plagueDoctorHealRange = 40...55
+        public static let packmasterSummonPercent = 20
+        public static let packmasterSummonHP = 30...40
+        public static let packmasterSummonDamage = 5...12
+        /// Packmaster's random drop pool (food + health).
+        public static let packmasterDropPool = [
+            "steak", "cannedfood", "chocolate", "carrot", "waterbottle", "mushroom", "tomato",
+            "bandage", "medkit", "medicine", "pills",
+        ]
     }
 
     // MARK: - Enemy combat (Part 2 rebalance: damage + weighted HP)

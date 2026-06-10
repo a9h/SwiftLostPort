@@ -14,13 +14,29 @@ struct EncounterView: View {
 
             if let enemy = game.enemy {
                 VStack(spacing: 8) {
-                    Text(enemy.emoji)
-                        .font(.system(size: enemy.isBoss ? 112 : 96))
-                        .offset(x: shake ? -10 : 0)
-                        .animation(.spring(duration: 0.18, bounce: 0.7), value: shake)
-                    Text(enemy.isBoss ? "⚠️ BOSS FIGHT ⚠️" : "The enemy is \(enemy.displayName)")
-                        .font(.system(.title3, design: .monospaced).bold())
-                        .foregroundStyle(enemy.isBoss ? .purple : difficultyColor(enemy.difficulty))
+                    if let boss = enemy.boss {
+                        // Boss banner: decoration line + name, max-damage marker.
+                        Text(game.maxDamageFlag ? "💀 \(boss.decoration) 💀" : boss.decoration)
+                            .font(.system(size: 40))
+                            .offset(x: shake ? -10 : 0)
+                            .animation(.spring(duration: 0.18, bounce: 0.7), value: shake)
+                        Text(boss.displayName)
+                            .font(.system(.title2, design: .monospaced).bold())
+                            .foregroundStyle(.purple)
+                        if game.maxDamageFlag {
+                            Text("💀 MAX DAMAGE 💀")
+                                .font(.caption.monospaced().bold())
+                                .foregroundStyle(.red)
+                        }
+                    } else {
+                        Text(enemy.emoji)
+                            .font(.system(size: 96))
+                            .offset(x: shake ? -10 : 0)
+                            .animation(.spring(duration: 0.18, bounce: 0.7), value: shake)
+                        Text("The enemy is \(enemy.displayName)")
+                            .font(.system(.title3, design: .monospaced).bold())
+                            .foregroundStyle(difficultyColor(enemy.difficulty))
+                    }
 
                     // Enemy HP bar
                     VStack(spacing: 2) {
