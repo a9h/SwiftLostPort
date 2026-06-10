@@ -436,14 +436,21 @@ struct HelpSheet: View {
 
                 🔍 Loot — search each room once. Fewer doors = better luck.
                 🍽️ Use — eat 🍅, drink 💧, heal 🩹. Hunger and thirst tick \
-                down as you wander; hit zero and you die.
-                ⚔️ Fight — enemies are easy 🧟 (100hp), medium 👹 (150hp) or \
-                hard 🐉 (250hp). The 🔦 torch can scare them off (25%).
+                down as you wander; hit zero and you die. ☠️ Poison saps health \
+                each room for a while.
+                ⚔️ Fight — enemies grow tougher the deeper you go (after ~60 \
+                rooms). The 🔦 torch can scare most foes off (25%).
+                👹 Bosses — every 50 depth (≈100 rooms) a named boss gates the \
+                way: 🤠 Cowboy dodges, 👻 Ghoul poisons, 🧙 Plague Doctor heals, \
+                🗡️ Warlord hits twice & ignores torches, 🐺 Packmaster summons.
                 🏃 Run — escaping can cost you a few hits.
                 🛠️ Craft — 5×🔩 → 🪖 helmet, 3×🔩 → 👢 boots, 5×🔩 → ⛓️ iron.
+                🪒 Grindstone — convert weapons (knife→sword…) or sharpen one \
+                for +5 damage. Free at any trader, or carry your own.
                 🪨 Breakdown — with a grindstone, grind weapons into 🔩.
-                🪖 Equip — armour reduces damage by its average percent.
-                🧙 Trader — buys appear rarely; shop, and gamble at 50/50 or H/L.
+                🪖 Equip — armour reduces damage with diminishing returns.
+                🧙 Trader — a merchant sells; a 🪤 scavenger buys your loot. \
+                Both gamble at 50/50 or H/L.
                 💾 Save — from any normal room.
 
                 Good luck. You'll need it.

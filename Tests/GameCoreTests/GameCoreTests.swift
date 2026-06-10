@@ -848,6 +848,19 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Save / load round trip
 
+    func testWeaponUpgradeLevelPersistsThroughSaveLoad() {
+        let game = startInRoom(doors: 2, thenScript: [])
+        game.inventory.add("sword")
+        game.inventory.add("scrapmetal", count: 6)
+        game.upgradeWeaponDamage("sword")
+        game.upgradeWeaponDamage("sword") // level 2
+        game.saveGame(slot: 2)
+        game.startNewGame()
+        XCTAssertTrue(game.loadGame(slot: 2))
+        XCTAssertEqual(game.inventory.upgradeLevel(of: "sword"), 2)
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0) // 6 - 2*3
+    }
+
     func testSaveLoadRoundTrip() {
         let game = startInRoom(doors: 2, thenScript: [])
         game.inventory.add("knife", count: 2)
