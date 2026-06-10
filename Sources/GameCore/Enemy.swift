@@ -3,22 +3,9 @@ import Foundation
 public enum Difficulty: String, Codable, CaseIterable, Sendable {
     case easy, medium, hard
 
-    /// Base HP before depth scaling.
-    public var baseHP: Int {
-        switch self {
-        case .easy: return 100
-        case .medium: return 150
-        case .hard: return 250
-        }
-    }
-
-    /// Base damage the enemy deals per hit (before depth scaling and armour).
+    /// Damage the enemy deals per hit (before armour). See `Balance.EnemyCombat`.
     public var baseDamageRange: ClosedRange<Int> {
-        switch self {
-        case .easy: return 2...25
-        case .medium: return 25...50
-        case .hard: return 50...90
-        }
+        Balance.EnemyCombat.damage(for: self)
     }
 
     /// Base coins looted from the enemy (before depth scaling).
@@ -68,29 +55,18 @@ public struct Enemy: Equatable, Sendable {
         return lo...max(lo, hi)
     }
 
-    /// Builds an enemy scaled for the given depth. Scaling only kicks in past
-    /// `Balance.Depth.scalingStartDepth` and ramps gently from there. Bosses
-    /// use hard-tier stats, ×3 HP and ×1.25 damage, with the ramp on top.
-    public static func make(difficulty: Difficulty, depth: Int, isBoss: Bool) -> Enemy {
-        let effective = Double(Balance.Depth.effectiveDepth(depth))
-        let hpMultiplier = 1.0 + effective * Balance.Depth.hpRampPerRoom
-        let damageMultiplier = 1.0 + effective * Balance.Depth.damageRampPerRoom
-        let coinMultiplier = 1.0 + effective * Balance.Depth.coinRampPerRoom
-
-        if isBoss {
-            let baseHP = Difficulty.hard.baseHP * Balance.Depth.bossHPMultiplier
-            let maxHP = Int((Double(baseHP) * hpMultiplier).rounded())
-            let damage = scale(Difficulty.hard.baseDamageRange,
-                               by: damageMultiplier * Balance.Depth.bossDamageMultiplier)
-            let coins = scale(Balance.Depth.bossCoinRange, by: coinMultiplier)
-            return Enemy(difficulty: .hard, isBoss: true, maxHP: maxHP, hp: maxHP,
-                         damageRange: damage, coinRange: coins)
-        }
-
-        let maxHP = Int((Double(difficulty.baseHP) * hpMultiplier).rounded())
-        let damage = scale(difficulty.baseDamageRange, by: damageMultiplier)
+    /// Builds a normal enemy. HP is a depth-weighted roll (2c: low end early,
+    /// high end late, plus jitter); damage uses the flat new ranges (2b); coins
+    /// still ramp gently with depth so deep fights pay more.
+    /// (Bosses are built separately — see the Boss system in Part 3.)
+    public static func make(difficulty: Difficulty, depth: Int, isBoss: Bool,
+                            using rng: inout GameRandom) -> Enemy {
+        let jitter = rng.int(in: 0...Balance.EnemyCombat.hpJitter)
+        let hp = Balance.EnemyCombat.rolledHP(for: difficulty, depth: depth, jitterRoll: jitter)
+        let damage = difficulty.baseDamageRange
+        let coinMultiplier = 1.0 + Double(Balance.Depth.effectiveDepth(depth)) * Balance.Depth.coinRampPerRoom
         let coins = scale(difficulty.baseCoinRange, by: coinMultiplier)
-        return Enemy(difficulty: difficulty, isBoss: false, maxHP: maxHP, hp: maxHP,
+        return Enemy(difficulty: difficulty, isBoss: isBoss, maxHP: hp, hp: hp,
                      damageRange: damage, coinRange: coins)
     }
 }

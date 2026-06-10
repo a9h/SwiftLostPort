@@ -100,40 +100,46 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(200 / 2, 100) // depth 100 = 200 rooms
     }
 
-    // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
+    // MARK: - Combat rebalance (Part 2: weapon/enemy damage + weighted HP)
 
-    func testNoScalingBelowThreshold() {
-        // Below depth 30 enemies use flat base stats — no scaling at all.
-        for depth in [0, 1, 15, 29] {
-            XCTAssertEqual(Enemy.make(difficulty: .easy, depth: depth, isBoss: false).maxHP, 100)
-            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).maxHP, 250)
-            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).damageRange, 50...90)
-            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).coinRange, 100...150)
-        }
-        // At exactly depth 30 the multiplier is still 1.0 (effectiveDepth 0).
-        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 30, isBoss: false).maxHP, 100)
+    func testWeaponDamageArraysUseNewRanges() {
+        let data = GameData.load()
+        XCTAssertEqual(data.weapons["branch"]?.first, 12);    XCTAssertEqual(data.weapons["branch"]?.last, 22)
+        XCTAssertEqual(data.weapons["fork"]?.first, 22);      XCTAssertEqual(data.weapons["fork"]?.last, 32)
+        XCTAssertEqual(data.weapons["bat"]?.first, 30);       XCTAssertEqual(data.weapons["bat"]?.last, 42)
+        XCTAssertEqual(data.weapons["shovel"]?.first, 28);    XCTAssertEqual(data.weapons["shovel"]?.last, 45)
+        XCTAssertEqual(data.weapons["crowbar"]?.first, 35);   XCTAssertEqual(data.weapons["crowbar"]?.last, 50)
+        XCTAssertEqual(data.weapons["knife"]?.first, 40);     XCTAssertEqual(data.weapons["knife"]?.last, 55)
+        XCTAssertEqual(data.weapons["sword"]?.first, 58);     XCTAssertEqual(data.weapons["sword"]?.last, 75)
+        XCTAssertEqual(data.weapons["longsword"]?.first, 80); XCTAssertEqual(data.weapons["longsword"]?.last, 100)
     }
 
-    func testEnemyScalesGentlyPastThreshold() {
-        // Depth 50 -> effectiveDepth 20.
-        let easy = Enemy.make(difficulty: .easy, depth: 50, isBoss: false)
-        XCTAssertEqual(easy.maxHP, 130) // 100 * (1 + 20*0.015 = 1.30)
-        let hard = Enemy.make(difficulty: .hard, depth: 50, isBoss: false)
-        XCTAssertEqual(hard.maxHP, 325) // 250 * 1.30
-        XCTAssertEqual(hard.damageRange, 62...112) // 50–90 * (1 + 20*0.012 = 1.24)
-        XCTAssertEqual(hard.coinRange, 160...240) // 100–150 * (1 + 20*0.03 = 1.60)
-        // Depth 85 -> effectiveDepth 55, hpMult 1.825.
-        XCTAssertEqual(Enemy.make(difficulty: .hard, depth: 85, isBoss: false).maxHP, 456) // 250*1.825
+    func testEnemyDamageRangesUseNewValues() {
+        var rng: GameRandom = ScriptedGameRandom([0])
+        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 0, isBoss: false, using: &rng).damageRange, 3...12)
+        rng = ScriptedGameRandom([0])
+        XCTAssertEqual(Enemy.make(difficulty: .medium, depth: 0, isBoss: false, using: &rng).damageRange, 15...35)
+        rng = ScriptedGameRandom([0])
+        XCTAssertEqual(Enemy.make(difficulty: .hard, depth: 0, isBoss: false, using: &rng).damageRange, 28...55)
     }
 
-    func testBossStatsAtFirstBossDepth() {
-        // First boss at depth 50 (effectiveDepth 20).
-        let boss = Enemy.make(difficulty: .hard, depth: 50, isBoss: true)
-        XCTAssertEqual(boss.maxHP, 975) // 250*3 * 1.30
-        // damage 50–90 * 1.24 * 1.25 (=1.55) -> 78...140
-        XCTAssertEqual(boss.damageRange, 78...140)
-        XCTAssertTrue(boss.isBoss)
+    func testWeightedEnemyHPBiasesLowEarlyHighLate() {
+        // Depth 0 sits at the low end (plus jitter).
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .easy, depth: 0, jitterRoll: 0), 75)
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .hard, depth: 0, jitterRoll: 0), 155)
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .easy, depth: 0, jitterRoll: 15), 90)
+        // At/after the cap the roll reaches the high end and stays clamped.
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .easy, depth: 150, jitterRoll: 0), 115)
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .hard, depth: 150, jitterRoll: 0), 200)
+        XCTAssertEqual(Balance.EnemyCombat.rolledHP(for: .hard, depth: 300, jitterRoll: 0), 200)
+        // Mid depth lands between, biased low (quadratic weight).
+        let mid = Balance.EnemyCombat.rolledHP(for: .hard, depth: 75, jitterRoll: 0) // weight .5 -> t .25
+        XCTAssertEqual(mid, 166) // 155 + floor(0.25*45)
+        XCTAssertGreaterThanOrEqual(mid, 155)
+        XCTAssertLessThan(mid, 200)
     }
+
+    // MARK: - Bosses (interim — replaced in Part 3)
 
     func testBossCadence() {
         // Bosses at 50, 85, 120; never at the old 10/20/30/40 milestones.
@@ -187,19 +193,19 @@ final class GameCoreTests: XCTestCase {
         game.player.armour = Armour(head: 30, chest: 30, legs: 30) // raw 90 -> ~36% reduction
         game.depth = 0 // isolate from depth scaling
 
-        // Force an encounter: difficulty roll 150 -> easy (100 HP).
-        game.rng = ScriptedGameRandom([150])
+        // Force an encounter: difficulty roll 150 -> easy; jitter 0 -> HP 75.
+        game.rng = ScriptedGameRandom([150, 0])
         game.startEncounter()
         XCTAssertEqual(game.enemy?.difficulty, .easy)
-        XCTAssertEqual(game.enemy?.hp, 100)
+        XCTAssertEqual(game.enemy?.hp, 75)
 
-        // Attack: knife damage index 5 -> damages[5] = 45; counter-hit raw 20.
-        // afterFlat 18 * (1 - 0.85*90/210) = 18 * 0.6357 = ~11.
-        game.rng = ScriptedGameRandom([5, 20])
+        // Attack: knife damage index 5 -> damages[5] = 45; counter-hit raw 12
+        // (easy 3–12). afterFlat 10 * (1 - 0.85*90/210) = 10 * 0.6357 = ~6.
+        game.rng = ScriptedGameRandom([5, 12])
         game.beginFight()
         game.attack(with: "knife")
-        XCTAssertEqual(game.enemy?.hp, 100 - 45)
-        XCTAssertEqual(game.player.currentHealth, 100 - 11)
+        XCTAssertEqual(game.enemy?.hp, 75 - 45)
+        XCTAssertEqual(game.player.currentHealth, 100 - 6)
     }
 
     func testKillingEnemyAwardsCoinsInDifficultyRange() {
@@ -207,12 +213,11 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("longsword")
         game.depth = 0 // isolate from depth scaling
 
-        game.rng = ScriptedGameRandom([150]) // easy, 100 HP
+        game.rng = ScriptedGameRandom([150, 0]) // easy, jitter 0 -> HP 75
         game.startEncounter()
-        // longsword damage choice index 0 -> 125 (kills), coins roll 30 (clamped to easy 10...30),
-        // then the next room generation: no decay, no trader, no enemy, room 0, doors 2.
-        // ...then a normal next room: decay 50, trader 100, encounter 100,
-        // room 0, doors 2, modifier 100 (none).
+        // longsword damage index 0 -> 80 (kills the 75-HP enemy), coins roll 30
+        // (easy 10...30), then a normal next room: decay 50, trader 100,
+        // encounter 100, room 0, doors 2, modifier 100 (none).
         game.rng = ScriptedGameRandom([0, 30, 50, 100, 100, 0, 2, 100])
         game.beginFight()
         game.attack(with: "longsword")
@@ -240,12 +245,13 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("branch") // durability 8
         XCTAssertEqual(game.inventory.instances(of: "branch").first?.durability, 8)
 
-        game.rng = ScriptedGameRandom([150]) // easy enemy, 100 HP
+        game.rng = ScriptedGameRandom([150, 0]) // easy enemy
         game.startEncounter()
+        game.enemy?.hp = 1000 // make it tanky so it survives all 8 swings
         game.beginFight()
 
-        // Branch does 10–20; give it index 0 (=10) each swing so it never kills,
-        // and a tiny counter-hit. 8 swings should break it.
+        // Branch index 0 (=12) each swing so it never kills, with a tiny
+        // counter-hit. 8 swings should break the branch (durability 8).
         for hit in 1...8 {
             game.rng = ScriptedGameRandom([0, 2]) // weapon dmg idx 0, counter raw 2
             game.attack(with: "branch")

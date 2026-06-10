@@ -12,7 +12,7 @@ public extension GameState {
         let isBoss = bossPending
         bossPending = false
         let difficulty = isBoss ? .hard : Difficulty.roll(using: &rng)
-        let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: isBoss)
+        let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: isBoss, using: &rng)
         enemy = newEnemy
         encounterPhase = .choosing
         screen = .encounter

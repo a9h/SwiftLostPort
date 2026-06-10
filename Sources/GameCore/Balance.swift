@@ -51,6 +51,52 @@ public enum Balance {
         }
     }
 
+    // MARK: - Enemy combat (Part 2 rebalance: damage + weighted HP)
+
+    public enum EnemyCombat {
+        /// Damage dealt to the player per hit (2b). Applies on every damage
+        /// route via `reducedDamage()`.
+        public static let easyDamage = 3...12
+        public static let mediumDamage = 15...35
+        public static let hardDamage = 28...55
+
+        public static func damage(for difficulty: Difficulty) -> ClosedRange<Int> {
+            switch difficulty {
+            case .easy: return easyDamage
+            case .medium: return mediumDamage
+            case .hard: return hardDamage
+            }
+        }
+
+        /// HP min/max per difficulty (2c). The actual HP is a depth-weighted
+        /// roll within this range — low end early, high end late.
+        public static let easyHP = (min: 75, max: 115)
+        public static let mediumHP = (min: 120, max: 150)
+        public static let hardHP = (min: 155, max: 200)
+        /// Depth at which the weighting reaches the high end (weight caps at 1).
+        public static let depthWeightCap = 150.0
+        /// Random ± added to the weighted HP for per-encounter variety.
+        public static let hpJitter = 15
+
+        public static func hpRange(for difficulty: Difficulty) -> (min: Int, max: Int) {
+            switch difficulty {
+            case .easy: return easyHP
+            case .medium: return mediumHP
+            case .hard: return hardHP
+            }
+        }
+
+        /// The depth-weighted HP roll: quadratic bias toward the low end early,
+        /// the high end late, plus jitter, clamped into [min, max].
+        public static func rolledHP(for difficulty: Difficulty, depth: Int, jitterRoll: Int) -> Int {
+            let (minHP, maxHP) = hpRange(for: difficulty)
+            let depthWeight = Swift.min(1.0, Double(depth) / depthWeightCap)
+            let t = depthWeight * depthWeight
+            let raw = Int(Double(minHP) + t * Double(maxHP - minHP)) + jitterRoll
+            return Swift.min(maxHP, Swift.max(minHP, raw))
+        }
+    }
+
     // MARK: - Weapon durability (B2)
 
     public enum Durability {
