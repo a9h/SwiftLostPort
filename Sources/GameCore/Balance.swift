@@ -15,18 +15,23 @@ public enum Balance {
         public static let flat = 2
     }
 
-    // MARK: - Depth scaling + bosses (B1)
+    // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
 
     public enum Depth {
-        /// +4% enemy HP per room of depth.
-        public static let hpPerDepth = 0.04
-        /// +3% enemy damage per room of depth.
-        public static let damagePerDepth = 0.03
-        /// +5% coin reward per room of depth.
-        public static let coinPerDepth = 0.05
+        /// No depth scaling at all below this depth — a long, fair early game
+        /// where the player gathers gear before threats grow.
+        public static let scalingStartDepth = 30
+        /// Per-room HP ramp past the threshold (+1.5%/room).
+        public static let hpRampPerRoom = 0.015
+        /// Per-room damage ramp past the threshold (+1.2%/room).
+        public static let damageRampPerRoom = 0.012
+        /// Per-room coin ramp past the threshold (+3%/room) — rewards still grow.
+        public static let coinRampPerRoom = 0.03
 
-        /// A boss is forced every Nth depth (10, 20, 30, ...).
-        public static let bossInterval = 10
+        /// The first boss appears at this depth...
+        public static let firstBossDepth = 50
+        /// ...then every this-many depths after (50, 85, 120, ...).
+        public static let bossInterval = 35
         /// Boss HP = hard-tier HP × this (before depth multiplier).
         public static let bossHPMultiplier = 3
         /// Boss damage = hard-tier range, depth-scaled, × this.
@@ -35,6 +40,15 @@ public enum Balance {
         public static let bossCoinRange = 200...350
         /// Curated guaranteed drop pool on boss death.
         public static let bossLootPool = ["ironHelmet", "ironChestplate", "ironBoots", "sword", "longsword", "medkit"]
+
+        /// Depth measured past the scaling threshold (0 below it).
+        public static func effectiveDepth(_ depth: Int) -> Int {
+            max(0, depth - scalingStartDepth)
+        }
+        /// True when `depth` is a boss milestone (50, 85, 120, ...).
+        public static func isBossDepth(_ depth: Int) -> Bool {
+            depth >= firstBossDepth && (depth - firstBossDepth) % bossInterval == 0
+        }
     }
 
     // MARK: - Weapon durability (B2)

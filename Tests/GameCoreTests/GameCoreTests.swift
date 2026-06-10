@@ -78,43 +78,61 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(Difficulty.roll(using: &rng), .hard)
     }
 
-    // MARK: - Depth scaling + bosses (B1)
+    // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
 
-    func testEnemyHPScalesWithDepth() {
-        // hpMultiplier = 1 + depth*0.04
-        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 0, isBoss: false).maxHP, 100)
-        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 25, isBoss: false).maxHP, 200) // doubled
-        XCTAssertEqual(Enemy.make(difficulty: .hard, depth: 10, isBoss: false).maxHP, 350) // 250*1.4
+    func testNoScalingBelowThreshold() {
+        // Below depth 30 enemies use flat base stats — no scaling at all.
+        for depth in [0, 1, 15, 29] {
+            XCTAssertEqual(Enemy.make(difficulty: .easy, depth: depth, isBoss: false).maxHP, 100)
+            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).maxHP, 250)
+            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).damageRange, 50...90)
+            XCTAssertEqual(Enemy.make(difficulty: .hard, depth: depth, isBoss: false).coinRange, 100...150)
+        }
+        // At exactly depth 30 the multiplier is still 1.0 (effectiveDepth 0).
+        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 30, isBoss: false).maxHP, 100)
     }
 
-    func testEnemyDamageAndCoinsScaleWithDepth() {
-        let e = Enemy.make(difficulty: .hard, depth: 10, isBoss: false)
-        // damage 50–90 * 1.30 -> 65–117
-        XCTAssertEqual(e.damageRange, 65...117)
-        // coins 100–150 * 1.50 -> 150–225
-        XCTAssertEqual(e.coinRange, 150...225)
+    func testEnemyScalesGentlyPastThreshold() {
+        // Depth 50 -> effectiveDepth 20.
+        let easy = Enemy.make(difficulty: .easy, depth: 50, isBoss: false)
+        XCTAssertEqual(easy.maxHP, 130) // 100 * (1 + 20*0.015 = 1.30)
+        let hard = Enemy.make(difficulty: .hard, depth: 50, isBoss: false)
+        XCTAssertEqual(hard.maxHP, 325) // 250 * 1.30
+        XCTAssertEqual(hard.damageRange, 62...112) // 50–90 * (1 + 20*0.012 = 1.24)
+        XCTAssertEqual(hard.coinRange, 160...240) // 100–150 * (1 + 20*0.03 = 1.60)
+        // Depth 85 -> effectiveDepth 55, hpMult 1.825.
+        XCTAssertEqual(Enemy.make(difficulty: .hard, depth: 85, isBoss: false).maxHP, 456) // 250*1.825
     }
 
-    func testBossStatsAndScaling() {
-        let boss = Enemy.make(difficulty: .hard, depth: 10, isBoss: true)
-        // HP = 250*3 * 1.4 = 1050
-        XCTAssertEqual(boss.maxHP, 1050)
-        // damage 50–90 * 1.30 * 1.25 -> round(81.25)=81 ... round(146.25)=146
-        XCTAssertEqual(boss.damageRange, 81...146)
+    func testBossStatsAtFirstBossDepth() {
+        // First boss at depth 50 (effectiveDepth 20).
+        let boss = Enemy.make(difficulty: .hard, depth: 50, isBoss: true)
+        XCTAssertEqual(boss.maxHP, 975) // 250*3 * 1.30
+        // damage 50–90 * 1.24 * 1.25 (=1.55) -> 78...140
+        XCTAssertEqual(boss.damageRange, 78...140)
         XCTAssertTrue(boss.isBoss)
     }
 
-    func testBossSpawnsAtDepthMilestones() {
-        // Walk to depth 10 and confirm the next encounter is a boss.
+    func testBossCadence() {
+        // Bosses at 50, 85, 120; never at the old 10/20/30/40 milestones.
+        XCTAssertTrue(Balance.Depth.isBossDepth(50))
+        XCTAssertTrue(Balance.Depth.isBossDepth(85))
+        XCTAssertTrue(Balance.Depth.isBossDepth(120))
+        for d in [10, 20, 30, 40, 49, 51, 84] {
+            XCTAssertFalse(Balance.Depth.isBossDepth(d), "depth \(d) should not be a boss")
+        }
+    }
+
+    func testBossSpawnsAtMilestone() {
+        // Walk from depth 49 to 50 and confirm the next encounter is a boss.
         let game = startInRoom(doors: 1, thenScript: [])
-        game.depth = 9
+        game.depth = 49
         game.bossPending = false
-        // takeDoor -> depth 10 -> bossPending set; force an encounter this room.
-        // generateRoom script: decay 50(no), trader 100(no), encounter 10(<25 yes).
         game.previousEncounter = false
+        // generateRoom: decay 50(no), trader 100(no), encounter 10(<25 yes).
         game.rng = ScriptedGameRandom([50, 100, 10])
         game.takeDoor(1)
-        XCTAssertEqual(game.depth, 10)
+        XCTAssertEqual(game.depth, 50)
         XCTAssertEqual(game.screen, .encounter)
         XCTAssertEqual(game.enemy?.isBoss, true)
         XCTAssertFalse(game.bossPending) // consumed
@@ -123,7 +141,7 @@ final class GameCoreTests: XCTestCase {
     func testTorchCannotScareBoss() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("torch")
-        game.depth = 10
+        game.depth = 50
         game.bossPending = true
         game.startEncounter()
         XCTAssertEqual(game.enemy?.isBoss, true)

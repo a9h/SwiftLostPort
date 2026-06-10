@@ -68,12 +68,14 @@ public struct Enemy: Equatable, Sendable {
         return lo...max(lo, hi)
     }
 
-    /// Builds an enemy scaled for the given depth. Bosses use hard-tier stats,
-    /// ×3 HP and ×1.25 damage, with the depth multipliers layered on top.
+    /// Builds an enemy scaled for the given depth. Scaling only kicks in past
+    /// `Balance.Depth.scalingStartDepth` and ramps gently from there. Bosses
+    /// use hard-tier stats, ×3 HP and ×1.25 damage, with the ramp on top.
     public static func make(difficulty: Difficulty, depth: Int, isBoss: Bool) -> Enemy {
-        let hpMultiplier = 1.0 + Double(depth) * Balance.Depth.hpPerDepth
-        let damageMultiplier = 1.0 + Double(depth) * Balance.Depth.damagePerDepth
-        let coinMultiplier = 1.0 + Double(depth) * Balance.Depth.coinPerDepth
+        let effective = Double(Balance.Depth.effectiveDepth(depth))
+        let hpMultiplier = 1.0 + effective * Balance.Depth.hpRampPerRoom
+        let damageMultiplier = 1.0 + effective * Balance.Depth.damageRampPerRoom
+        let coinMultiplier = 1.0 + effective * Balance.Depth.coinRampPerRoom
 
         if isBoss {
             let baseHP = Difficulty.hard.baseHP * Balance.Depth.bossHPMultiplier

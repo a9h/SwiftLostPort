@@ -121,8 +121,9 @@ public final class GameState: ObservableObject {
         roomModifier = .none
         roomsVisited += 1
         depth += 1
-        // Crossing a boss milestone arms the next enemy encounter as a boss.
-        if depth % Balance.Depth.bossInterval == 0 { bossPending = true }
+        // Crossing a boss milestone (50, 85, 120, ...) arms the next enemy
+        // encounter as a boss.
+        if Balance.Depth.isBossDepth(depth) { bossPending = true }
 
         // Hunger/thirst decay: 50% chance to lose 1–10 of each.
         if rng.int(in: 1...100) > 50 {

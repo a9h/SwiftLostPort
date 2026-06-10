@@ -14,8 +14,8 @@ public extension GameState {
             say("🌑 It's pitch black in here — you'll need a light to search.", .info)
 
         case .trap:
-            // Depth-scaled, armour-reduced spike/collapse damage.
-            let multiplier = 1.0 + Double(depth) * Balance.Depth.damagePerDepth
+            // Depth-scaled (past the threshold), armour-reduced spike/collapse damage.
+            let multiplier = 1.0 + Double(Balance.Depth.effectiveDepth(depth)) * Balance.Depth.damageRampPerRoom
             let scaled = Enemy.scale(Balance.RoomModifiers.trapDamageRange, by: multiplier)
             let raw = rng.int(in: scaled)
             let damage = player.armour.reducedDamage(raw)
