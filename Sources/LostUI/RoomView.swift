@@ -22,6 +22,15 @@ struct RoomView: View {
                 Text(game.hasLooted ? "Picked clean." : "Looks like there could be something here...")
                     .font(.footnote.monospaced())
                     .foregroundStyle(.secondary)
+
+                if let banner = game.roomModifier.banner {
+                    Text("\(game.roomModifier.emoji) \(banner)")
+                        .font(.caption.monospaced().bold())
+                        .foregroundStyle(modifierColor)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(modifierColor.opacity(0.15), in: Capsule())
+                        .padding(.top, 2)
+                }
             }
 
             // Doors: tap to move on (door N only if the room has N doors).
@@ -43,6 +52,15 @@ struct RoomView: View {
             Spacer(minLength: 0)
 
             actionGrid
+        }
+    }
+
+    private var modifierColor: Color {
+        switch game.roomModifier {
+        case .trap: return .orange
+        case .dark: return .purple
+        case .flooded: return .blue
+        case .none: return .secondary
         }
     }
 

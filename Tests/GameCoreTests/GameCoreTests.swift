@@ -10,10 +10,11 @@ final class GameCoreTests: XCTestCase {
 
     /// Puts the game into a plain Kitchen room with the given door count,
     /// consuming a known script prefix:
-    /// decay-roll(no decay), traderRarity(no), encounterChance(no), room(choice 0 = Basement... rooms sorted), doors.
+    /// decay-roll(no decay), traderRarity(no), encounterChance(no),
+    /// room(choice 4 = Kitchen, rooms sorted), doors, modifier-roll(100 = none).
     private func startInRoom(doors: Int, thenScript rest: [Int]) -> GameState {
         // Room names sorted: Basement, Bathroom, Bedroom, Garden, Kitchen -> index 4 = Kitchen
-        let prefix = [50, 100, 100, 4, doors]
+        let prefix = [50, 100, 100, 4, doors, 100]
         let game = makeGame(script: prefix + rest)
         game.startNewGame()
         XCTAssertEqual(game.screen, .room)
@@ -169,7 +170,9 @@ final class GameCoreTests: XCTestCase {
         game.startEncounter()
         // longsword damage choice index 0 -> 125 (kills), coins roll 30 (clamped to easy 10...30),
         // then the next room generation: no decay, no trader, no enemy, room 0, doors 2.
-        game.rng = ScriptedGameRandom([0, 30, 50, 100, 100, 0, 2])
+        // ...then a normal next room: decay 50, trader 100, encounter 100,
+        // room 0, doors 2, modifier 100 (none).
+        game.rng = ScriptedGameRandom([0, 30, 50, 100, 100, 0, 2, 100])
         game.beginFight()
         game.attack(with: "longsword")
         XCTAssertNil(game.enemy)
@@ -247,22 +250,22 @@ final class GameCoreTests: XCTestCase {
 
         let startHealth = game.player.currentHealth
         // Walk three rooms; each entry ticks 5 poison damage then wears off.
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1]) // no decay/trader/enemy
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100]) // no decay/trader/enemy
         game.takeDoor(1)
         XCTAssertEqual(game.player.currentHealth, startHealth - 5)
         XCTAssertEqual(game.player.poisonRemaining, 2)
 
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.player.poisonRemaining, 1)
 
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.player.currentHealth, startHealth - 15)
         XCTAssertFalse(game.player.isPoisoned) // worn off
 
         // A fourth room deals no further poison damage.
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.player.currentHealth, startHealth - 15)
     }
@@ -270,7 +273,7 @@ final class GameCoreTests: XCTestCase {
     func testPoisonRefreshesDuration() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.applyPoison()
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.player.poisonRemaining, 2)
         game.applyPoison() // refresh back to full
@@ -281,7 +284,7 @@ final class GameCoreTests: XCTestCase {
         let game = startInRoom(doors: 1, thenScript: [])
         game.player.currentHealth = 4 // less than one poison tick
         game.applyPoison()
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.screen, .gameOver(reason: "The poison finished you off", money: game.player.money))
     }
@@ -298,18 +301,83 @@ final class GameCoreTests: XCTestCase {
         XCTAssertFalse(game.player.isPoisoned)
     }
 
+    // MARK: - Room modifiers (B3)
+
+    func testRoomModifierRollThresholds() {
+        XCTAssertEqual(RoomModifier.roll(1), .trap)
+        XCTAssertEqual(RoomModifier.roll(12), .trap)
+        XCTAssertEqual(RoomModifier.roll(13), .dark)
+        XCTAssertEqual(RoomModifier.roll(24), .dark)
+        XCTAssertEqual(RoomModifier.roll(25), .flooded)
+        XCTAssertEqual(RoomModifier.roll(34), .flooded)
+        XCTAssertEqual(RoomModifier.roll(35), .none)
+        XCTAssertEqual(RoomModifier.roll(100), .none)
+    }
+
+    func testTrapRoomDealsArmourReducedDamageOnEntry() {
+        // Enter a trap room: decay 50, trader 100, encounter 100, room 4,
+        // doors 1, modifier 1 (trap), trap damage roll 25.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 1, 25])
+        game.startNewGame()
+        XCTAssertEqual(game.roomModifier, .trap)
+        // depth 1: trap range 10...25 * 1.03 -> 10...26, roll 25 clamped within;
+        // no armour -> afterFlat 23 -> 23 damage.
+        XCTAssertEqual(game.player.currentHealth, 100 - 23)
+    }
+
+    func testDarkRoomBlocksLootingWithoutTorch() {
+        // modifier 13 -> dark.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 13])
+        game.startNewGame()
+        XCTAssertEqual(game.roomModifier, .dark)
+        game.loot() // no torch -> blocked, no roll consumed
+        XCTAssertFalse(game.hasLooted)
+        XCTAssertTrue(game.inventory.isEmpty)
+
+        // With a torch the loot proceeds (lucky 10, item 0, key 75 -> no money).
+        game.inventory.add("torch")
+        game.rng = ScriptedGameRandom([10, 0, 75, 0])
+        game.loot()
+        XCTAssertTrue(game.hasLooted)
+        XCTAssertTrue(game.inventory.has("torch")) // torch not consumed
+        XCTAssertEqual(game.inventory.totalItemCount, 2) // torch + looted item
+    }
+
+    func testFloodedRoomDamagesWhenNoBoots() {
+        // modifier 25 -> flooded, water damage roll 15.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 25, 15])
+        game.startNewGame()
+        XCTAssertEqual(game.roomModifier, .flooded)
+        XCTAssertEqual(game.player.currentHealth, 100 - 15) // not armour-reduced
+    }
+
+    func testFloodedRoomSafeWithBoots() {
+        // Pre-place the player with leg armour, then enter a flooded room.
+        // Use startInRoom then verify by re-entering. Simplest: set legs and
+        // build the flooded room directly.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 25, 15])
+        game.startNewGame() // takes 15 with no boots
+        XCTAssertEqual(game.player.currentHealth, 85)
+        // Now give boots and walk into another flooded room.
+        game.player.armour.legs = 15
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 25, 15])
+        game.takeDoor(1)
+        XCTAssertEqual(game.roomModifier, .flooded)
+        XCTAssertEqual(game.player.currentHealth, 85) // unchanged — boots kept it dry
+    }
+
     // MARK: - Hunger / thirst decay
 
     func testDecayHappensWhenRollAboveFifty() {
         // decay roll 51 -> decay; hunger -7, thirst -3; no trader/enemy; room 4; doors 1
-        let game = makeGame(script: [51, 7, 3, 100, 100, 4, 1])
+        let game = makeGame(script: [51, 7, 3, 100, 100, 4, 1, 100])
         game.startNewGame()
         XCTAssertEqual(game.player.hunger, 93)
         XCTAssertEqual(game.player.thirst, 97)
     }
 
     func testNoDecayWhenRollFiftyOrBelow() {
-        let game = makeGame(script: [50, 100, 100, 4, 1])
+        let game = makeGame(script: [50, 100, 100, 4, 1, 100])
         game.startNewGame()
         XCTAssertEqual(game.player.hunger, 100)
         XCTAssertEqual(game.player.thirst, 100)
@@ -621,7 +689,7 @@ final class GameCoreTests: XCTestCase {
         let game = startInRoom(doors: 1, thenScript: [])
         game.previousEncounter = true
         // Next room: no decay (50), trader 100 (no), encounter 10 (<25 but blocked), room 4, doors 1
-        game.rng = ScriptedGameRandom([50, 100, 10, 4, 1])
+        game.rng = ScriptedGameRandom([50, 100, 10, 4, 1, 100])
         game.takeDoor(1)
         XCTAssertEqual(game.screen, .room)
         XCTAssertNil(game.enemy)

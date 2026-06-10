@@ -45,6 +45,8 @@ public final class GameState: ObservableObject {
     @Published public internal(set) var roomName: String = ""
     @Published public internal(set) var doors: Int = 1
     @Published public internal(set) var hasLooted = false
+    /// Hazard on the current room (B3): trap, dark, flooded, or none.
+    @Published public internal(set) var roomModifier: RoomModifier = .none
     /// True right after fleeing/winning a fight; blocks back-to-back
     /// encounters and is consumed by the next room generation.
     @Published var previousEncounter = false
@@ -94,6 +96,7 @@ public final class GameState: ObservableObject {
         previousEncounter = false
         depth = 0
         bossPending = false
+        roomModifier = .none
         roomsVisited = 0
         log = []
         say("Welcome to LOST. Find your way out... or don't.", .narration)
@@ -115,6 +118,7 @@ public final class GameState: ObservableObject {
         encounterPhase = .choosing
         shopStock = nil
         hlRound = nil
+        roomModifier = .none
         roomsVisited += 1
         depth += 1
         // Crossing a boss milestone arms the next enemy encounter as a boss.
@@ -152,8 +156,10 @@ public final class GameState: ObservableObject {
             roomName = rng.choice(data.roomNames)
             doors = rng.int(in: 1...3)
             hasLooted = false
+            roomModifier = RoomModifier.roll(rng.int(in: 1...100))
             screen = .room
             say("You find yourself in a \(roomName) with \(doors) door\(doors == 1 ? "" : "s")", .narration)
+            applyRoomEntryEffects()
         }
     }
 
@@ -171,6 +177,15 @@ public final class GameState: ObservableObject {
         if hasLooted {
             say("You have already looted this room!", .info)
             return
+        }
+        // Dark rooms need a torch in the pack as a light source (not consumed).
+        if roomModifier == .dark {
+            if inventory.has("torch") {
+                say("You hold up your torch and search the gloom.", .info)
+            } else {
+                say("It's pitch black — you can't see anything to loot without a light.", .info)
+                return
+            }
         }
         hasLooted = true
 

@@ -25,6 +25,7 @@ public struct SaveData: Codable, Equatable, Sendable {
     /// Per-instance weapons. In v2 saves `inventoryCounts` holds only
     /// non-weapon stackables; v1 saves kept weapons in `inventoryCounts`.
     public var weaponInstances: [WeaponInstance]
+    public var roomModifier: RoomModifier
 
     public init(version: Int = SaveData.currentVersion,
                 player: Player,
@@ -37,7 +38,8 @@ public struct SaveData: Codable, Equatable, Sendable {
                 savedAt: Date,
                 depth: Int,
                 bossPending: Bool,
-                weaponInstances: [WeaponInstance]) {
+                weaponInstances: [WeaponInstance],
+                roomModifier: RoomModifier) {
         self.version = version
         self.player = player
         self.inventoryCounts = inventoryCounts
@@ -50,6 +52,7 @@ public struct SaveData: Codable, Equatable, Sendable {
         self.depth = depth
         self.bossPending = bossPending
         self.weaponInstances = weaponInstances
+        self.roomModifier = roomModifier
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,6 +71,7 @@ public struct SaveData: Codable, Equatable, Sendable {
         depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsVisited
         bossPending = try c.decodeIfPresent(Bool.self, forKey: .bossPending) ?? false
         weaponInstances = try c.decodeIfPresent([WeaponInstance].self, forKey: .weaponInstances) ?? []
+        roomModifier = try c.decodeIfPresent(RoomModifier.self, forKey: .roomModifier) ?? .none
     }
 }
 
@@ -152,7 +156,8 @@ public extension GameState {
             savedAt: Date(),
             depth: depth,
             bossPending: bossPending,
-            weaponInstances: inventory.weapons
+            weaponInstances: inventory.weapons,
+            roomModifier: roomModifier
         )
         do {
             try saveStore.save(data, slot: slot)
@@ -182,6 +187,7 @@ public extension GameState {
         roomsVisited = saved.roomsVisited
         depth = saved.depth
         bossPending = saved.bossPending
+        roomModifier = saved.roomModifier
         enemy = nil
         shopStock = nil
         hlRound = nil
