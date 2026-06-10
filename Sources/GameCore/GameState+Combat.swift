@@ -26,11 +26,13 @@ public extension GameState {
     }
 
     /// One armour-reduced enemy hit. Returns the damage dealt to the player.
+    /// A landed hit may also apply poison (B2).
     func enemyHitsPlayer() -> Int {
         guard let enemy else { return 0 }
         let raw = rng.int(in: enemy.damageRange)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
+        rollPoison(from: enemy)
         return damage
     }
 
@@ -101,6 +103,10 @@ public extension GameState {
             let damage = rng.choice(damages)
             enemy?.hp -= damage
             say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
+            // The weapon wears with use; the torch is exempt (returns nil).
+            if inventory.degradeWeapon(weaponID) == true {
+                say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
+            }
         }
 
         if let enemy, enemy.hp <= 0 {
@@ -122,6 +128,13 @@ public extension GameState {
         let damage = enemyHitsPlayer()
         say("The enemy hit you back for \(damage) — you have \(player.currentHealth) health remaining", .combat)
         checkCombatDeath()
+
+        // If the player's last weapon broke this round, return to the
+        // RUN/FIGHT/USE menu so the no-weapon path applies next.
+        if screen == .encounter, ownedWeapons.isEmpty {
+            encounterPhase = .choosing
+            say("You're out of weapons!", .warning)
+        }
     }
 
     /// Back out of the weapon picker to RUN/FIGHT/USE (UI convenience;

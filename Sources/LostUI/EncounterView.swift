@@ -70,7 +70,7 @@ struct EncounterView: View {
                         VStack(spacing: 2) {
                             Text("\(ItemCatalog.emoji(weapon.id)) \(ItemCatalog.name(weapon.id))")
                                 .font(.callout.monospaced())
-                            Text(weapon.id == "torch" ? "25% scare" : "×\(weapon.count)")
+                            Text(weaponSubtitle(weapon.id, count: weapon.count))
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }
@@ -88,6 +88,17 @@ struct EncounterView: View {
             }
             .buttonStyle(.bordered)
         }
+    }
+
+    /// Torch shows its scare odds; other weapons show the freshest instance's
+    /// remaining durability (the one a swing will use).
+    private func weaponSubtitle(_ weaponID: String, count: Int) -> String {
+        if weaponID == "torch" { return "25% scare ×\(count)" }
+        if let best = game.inventory.instances(of: weaponID).first,
+           let d = best.durability, let m = best.maxDurability {
+            return count > 1 ? "\(d)/\(m) ×\(count)" : "\(d)/\(m)"
+        }
+        return "×\(count)"
     }
 
     private func difficultyColor(_ difficulty: Difficulty) -> Color {

@@ -39,6 +39,24 @@ public struct Armour: Codable, Equatable, Sendable {
     }
 }
 
+/// A lightweight, extensible status-effect system. Only poison ships now,
+/// but the shape (kind + remaining duration) leaves room for more.
+public enum StatusEffectKind: String, Codable, Sendable {
+    case poison
+}
+
+public struct StatusEffect: Codable, Equatable, Identifiable, Sendable {
+    public var id: StatusEffectKind { kind }
+    public var kind: StatusEffectKind
+    /// Rooms of effect remaining.
+    public var remaining: Int
+
+    public init(kind: StatusEffectKind, remaining: Int) {
+        self.kind = kind
+        self.remaining = remaining
+    }
+}
+
 public struct Player: Codable, Equatable, Sendable {
     public var currentHealth: Int = 100
     public var maxHealth: Int = 100
@@ -46,6 +64,28 @@ public struct Player: Codable, Equatable, Sendable {
     public var hunger: Int = 100
     public var thirst: Int = 100
     public var armour: Armour = Armour()
+    public var statusEffects: [StatusEffect] = []
 
     public init() {}
+
+    public var poisonRemaining: Int {
+        statusEffects.first { $0.kind == .poison }?.remaining ?? 0
+    }
+    public var isPoisoned: Bool { poisonRemaining > 0 }
+
+    // Custom Codable so a v1 save (no statusEffects key) decodes cleanly.
+    enum CodingKeys: String, CodingKey {
+        case currentHealth, maxHealth, money, hunger, thirst, armour, statusEffects
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        currentHealth = try c.decode(Int.self, forKey: .currentHealth)
+        maxHealth = try c.decode(Int.self, forKey: .maxHealth)
+        money = try c.decode(Int.self, forKey: .money)
+        hunger = try c.decode(Int.self, forKey: .hunger)
+        thirst = try c.decode(Int.self, forKey: .thirst)
+        armour = try c.decode(Armour.self, forKey: .armour)
+        statusEffects = try c.decodeIfPresent([StatusEffect].self, forKey: .statusEffects) ?? []
+    }
 }

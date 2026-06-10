@@ -57,6 +57,15 @@ struct InventorySheet: View {
     @EnvironmentObject private var game: GameState
     @State private var category: ItemCategory = .consumable
 
+    /// "24/30" for one weapon, "30/30, 24/30" for several; "∞" for the torch.
+    private func durabilityDetail(_ weaponID: String) -> String {
+        let parts = game.inventory.instances(of: weaponID).map { inst -> String in
+            if let d = inst.durability, let m = inst.maxDurability { return "\(d)/\(m)" }
+            return "∞"
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         SheetScaffold(title: "🎒 Inventory") {
             Picker("Category", selection: $category) {
@@ -74,7 +83,8 @@ struct InventorySheet: View {
                 ScrollView {
                     VStack(spacing: 6) {
                         ForEach(items, id: \.id) { item in
-                            ItemRow(id: item.id, count: item.count)
+                            ItemRow(id: item.id, count: item.count,
+                                    detail: category == .weapon ? durabilityDetail(item.id) : nil)
                         }
                     }
                 }

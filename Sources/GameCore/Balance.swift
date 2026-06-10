@@ -52,6 +52,8 @@ public enum Balance {
     // MARK: - Status effects (B2: poison)
 
     public enum Poison {
+        /// Chance a medium enemy inflicts poison on a landed hit.
+        public static let mediumChancePercent = 15
         /// Chance a hard enemy inflicts poison on a landed hit.
         public static let hardChancePercent = 30
         /// Chance a boss inflicts poison on a landed hit.

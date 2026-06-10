@@ -22,6 +22,9 @@ public struct SaveData: Codable, Equatable, Sendable {
     // v2 additions
     public var depth: Int
     public var bossPending: Bool
+    /// Per-instance weapons. In v2 saves `inventoryCounts` holds only
+    /// non-weapon stackables; v1 saves kept weapons in `inventoryCounts`.
+    public var weaponInstances: [WeaponInstance]
 
     public init(version: Int = SaveData.currentVersion,
                 player: Player,
@@ -33,7 +36,8 @@ public struct SaveData: Codable, Equatable, Sendable {
                 roomsVisited: Int,
                 savedAt: Date,
                 depth: Int,
-                bossPending: Bool) {
+                bossPending: Bool,
+                weaponInstances: [WeaponInstance]) {
         self.version = version
         self.player = player
         self.inventoryCounts = inventoryCounts
@@ -45,6 +49,7 @@ public struct SaveData: Codable, Equatable, Sendable {
         self.savedAt = savedAt
         self.depth = depth
         self.bossPending = bossPending
+        self.weaponInstances = weaponInstances
     }
 
     public init(from decoder: Decoder) throws {
@@ -62,6 +67,7 @@ public struct SaveData: Codable, Equatable, Sendable {
         // so an old run keeps a sensible difficulty when resumed.
         depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsVisited
         bossPending = try c.decodeIfPresent(Bool.self, forKey: .bossPending) ?? false
+        weaponInstances = try c.decodeIfPresent([WeaponInstance].self, forKey: .weaponInstances) ?? []
     }
 }
 
@@ -145,7 +151,8 @@ public extension GameState {
             roomsVisited: roomsVisited,
             savedAt: Date(),
             depth: depth,
-            bossPending: bossPending
+            bossPending: bossPending,
+            weaponInstances: inventory.weapons
         )
         do {
             try saveStore.save(data, slot: slot)
@@ -163,7 +170,11 @@ public extension GameState {
             return false
         }
         player = saved.player
-        inventory = Inventory(counts: saved.inventoryCounts)
+        // Routes any weapon ids in counts (v1) to instances, then restores
+        // saved per-instance weapons (v2). Both paths land in one inventory.
+        var restored = Inventory(counts: saved.inventoryCounts)
+        for weapon in saved.weaponInstances { restored.addWeapon(weapon) }
+        inventory = restored
         roomName = saved.roomName
         doors = saved.doors
         hasLooted = saved.hasLooted

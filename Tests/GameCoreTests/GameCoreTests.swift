@@ -188,6 +188,116 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(game.encounterPhase, .choosing) // fight ended
     }
 
+    // MARK: - Weapon durability (B2)
+
+    func testWeaponDurabilityDecrementsPerHitAndBreaks() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        game.inventory.add("branch") // durability 8
+        XCTAssertEqual(game.inventory.instances(of: "branch").first?.durability, 8)
+
+        game.rng = ScriptedGameRandom([150]) // easy enemy, 100 HP
+        game.startEncounter()
+        game.beginFight()
+
+        // Branch does 10–20; give it index 0 (=10) each swing so it never kills,
+        // and a tiny counter-hit. 8 swings should break it.
+        for hit in 1...8 {
+            game.rng = ScriptedGameRandom([0, 2]) // weapon dmg idx 0, counter raw 2
+            game.attack(with: "branch")
+            if hit < 8 {
+                XCTAssertEqual(game.inventory.instances(of: "branch").first?.durability, 8 - hit)
+            }
+        }
+        XCTAssertFalse(game.inventory.has("branch")) // broke on the 8th hit
+    }
+
+    func testTwoWeaponsWearIndependently() {
+        var inv = Inventory()
+        inv.add("sword") // two swords, durability 30 each
+        inv.add("sword")
+        XCTAssertEqual(inv.count(of: "sword"), 2)
+        // Wear one down — degradeWeapon hits the most-worn instance.
+        for _ in 0..<5 { _ = inv.degradeWeapon("sword") }
+        let durabilities = inv.instances(of: "sword").compactMap { $0.durability }.sorted()
+        XCTAssertEqual(durabilities, [25, 30]) // one worn, one pristine
+    }
+
+    func testLastWeaponBreakingReturnsToChoosing() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        // A branch with 1 durability left.
+        game.inventory.add("branch")
+        for _ in 0..<7 { _ = game.inventory.degradeWeapon("branch") } // now 1 left
+        game.rng = ScriptedGameRandom([150]) // easy
+        game.startEncounter()
+        game.beginFight()
+        game.rng = ScriptedGameRandom([0, 2]) // hit (enemy survives), branch breaks
+        game.attack(with: "branch")
+        XCTAssertFalse(game.inventory.has("branch"))
+        XCTAssertEqual(game.encounterPhase, .choosing) // fell back to the menu
+    }
+
+    // MARK: - Status effects / poison (B2)
+
+    func testPoisonAppliesTicksAndWearsOff() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.applyPoison()
+        XCTAssertEqual(game.player.poisonRemaining, 3)
+
+        let startHealth = game.player.currentHealth
+        // Walk three rooms; each entry ticks 5 poison damage then wears off.
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1]) // no decay/trader/enemy
+        game.takeDoor(1)
+        XCTAssertEqual(game.player.currentHealth, startHealth - 5)
+        XCTAssertEqual(game.player.poisonRemaining, 2)
+
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.takeDoor(1)
+        XCTAssertEqual(game.player.poisonRemaining, 1)
+
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.takeDoor(1)
+        XCTAssertEqual(game.player.currentHealth, startHealth - 15)
+        XCTAssertFalse(game.player.isPoisoned) // worn off
+
+        // A fourth room deals no further poison damage.
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.takeDoor(1)
+        XCTAssertEqual(game.player.currentHealth, startHealth - 15)
+    }
+
+    func testPoisonRefreshesDuration() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.applyPoison()
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.takeDoor(1)
+        XCTAssertEqual(game.player.poisonRemaining, 2)
+        game.applyPoison() // refresh back to full
+        XCTAssertEqual(game.player.poisonRemaining, 3)
+    }
+
+    func testPoisonCanKill() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.currentHealth = 4 // less than one poison tick
+        game.applyPoison()
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1])
+        game.takeDoor(1)
+        XCTAssertEqual(game.screen, .gameOver(reason: "The poison finished you off", money: game.player.money))
+    }
+
+    func testEasyEnemyNeverPoisons() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        game.rng = ScriptedGameRandom([150]) // easy
+        game.startEncounter()
+        // Easy enemy: rollPoison must consume no RNG and never poison. Verify
+        // by giving a no-weapon hit and checking no poison stuck.
+        game.rng = ScriptedGameRandom([10])
+        game.beginFight() // takes one hit
+        XCTAssertFalse(game.player.isPoisoned)
+    }
+
     // MARK: - Hunger / thirst decay
 
     func testDecayHappensWhenRollAboveFifty() {
@@ -436,10 +546,16 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("scrapmetal", count: 4)
         game.player.money = 123
         game.player.armour.head = 20
+        // New state: depth, a worn weapon, active poison.
+        game.depth = 14
+        game.bossPending = true
+        _ = game.inventory.degradeWeapon("knife") // one knife now 14/15
+        game.applyPoison()
         game.saveGame(slot: 1)
 
         game.startNewGame() // scripted RNG empty -> clamps; we only care it resets
         XCTAssertEqual(game.player.money, 50)
+        XCTAssertEqual(game.depth, 1) // new run entered its first room
 
         XCTAssertTrue(game.loadGame(slot: 1))
         XCTAssertEqual(game.player.money, 123)
@@ -449,6 +565,12 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(game.roomName, "Kitchen")
         XCTAssertEqual(game.doors, 2)
         XCTAssertEqual(game.screen, .room)
+        // New state restored intact.
+        XCTAssertEqual(game.depth, 14)
+        XCTAssertTrue(game.bossPending)
+        XCTAssertEqual(game.player.poisonRemaining, 3)
+        let durabilities = game.inventory.instances(of: "knife").compactMap { $0.durability }.sorted()
+        XCTAssertEqual(durabilities, [14, 15]) // worn knife persisted
     }
 
     // MARK: - Encounter generation flags

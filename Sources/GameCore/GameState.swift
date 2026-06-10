@@ -136,6 +136,9 @@ public final class GameState: ObservableObject {
         if player.hunger < 20 { say("⚠️ Your hunger is getting dangerously low!", .warning) }
         if player.thirst < 20 { say("⚠️ Your thirst is getting dangerously low!", .warning) }
 
+        // Status effects (poison) tick on room entry and can be fatal.
+        guard tickStatusEffects() else { return }
+
         let traderRarity = rng.int(in: 1...170)
         let encounterChance = rng.int(in: 1...130)
         let enemyAppears = encounterChance < 25 && !previousEncounter
