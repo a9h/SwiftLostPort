@@ -79,6 +79,27 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(Difficulty.roll(using: &rng), .hard)
     }
 
+    // MARK: - Depth : room ratio (1:2)
+
+    func testDepthIsHalfRoomsExplored() {
+        // Walk a handful of rooms and confirm depth == roomsExplored / 2.
+        let game = startInRoom(doors: 1, thenScript: []) // room 1, depth 0
+        XCTAssertEqual(game.roomsExplored, 1)
+        XCTAssertEqual(game.depth, 0)
+        // Step through several plain rooms.
+        let expected: [(rooms: Int, depth: Int)] = [(2, 1), (3, 1), (4, 2)]
+        for step in expected {
+            game.rng = ScriptedGameRandom([50, 100, 100, 0, 1, 100]) // plain room, no modifier
+            game.takeDoor(1)
+            XCTAssertEqual(game.roomsExplored, step.rooms)
+            XCTAssertEqual(game.depth, step.depth, "rooms \(step.rooms)")
+        }
+        // Spot-check the arithmetic directly at higher counts.
+        XCTAssertEqual(60 / 2, 30)   // scaling starts: depth 30 = 60 rooms
+        XCTAssertEqual(100 / 2, 50)  // first boss: depth 50 = 100 rooms
+        XCTAssertEqual(200 / 2, 100) // depth 100 = 200 rooms
+    }
+
     // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
 
     func testNoScalingBelowThreshold() {
@@ -125,14 +146,15 @@ final class GameCoreTests: XCTestCase {
     }
 
     func testBossSpawnsAtMilestone() {
-        // Walk from depth 49 to 50 and confirm the next encounter is a boss.
+        // Under the 1:2 ratio, depth 50 = room 100. Walk room 99 -> 100.
         let game = startInRoom(doors: 1, thenScript: [])
-        game.depth = 49
+        game.roomsExplored = 99
         game.bossPending = false
         game.previousEncounter = false
         // generateRoom: decay 50(no), trader 100(no), encounter 10(<25 yes).
         game.rng = ScriptedGameRandom([50, 100, 10])
         game.takeDoor(1)
+        XCTAssertEqual(game.roomsExplored, 100)
         XCTAssertEqual(game.depth, 50)
         XCTAssertEqual(game.screen, .encounter)
         XCTAssertEqual(game.enemy?.isBoss, true)
@@ -672,7 +694,8 @@ final class GameCoreTests: XCTestCase {
 
         game.startNewGame() // scripted RNG empty -> clamps; we only care it resets
         XCTAssertEqual(game.player.money, 50)
-        XCTAssertEqual(game.depth, 1) // new run entered its first room
+        XCTAssertEqual(game.roomsExplored, 1) // new run entered its first room
+        XCTAssertEqual(game.depth, 0)          // depth 0 at room 1 (1:2 ratio)
 
         XCTAssertTrue(game.loadGame(slot: 1))
         XCTAssertEqual(game.player.money, 123)
@@ -684,6 +707,7 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(game.screen, .room)
         // New state restored intact.
         XCTAssertEqual(game.depth, 14)
+        XCTAssertEqual(game.roomsExplored, 1)
         XCTAssertTrue(game.bossPending)
         XCTAssertEqual(game.player.poisonRemaining, 3)
         let durabilities = game.inventory.instances(of: "knife").compactMap { $0.durability }.sorted()

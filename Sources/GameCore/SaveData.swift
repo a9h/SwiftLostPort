@@ -16,7 +16,7 @@ public struct SaveData: Codable, Equatable, Sendable {
     public var doors: Int
     public var hasLooted: Bool
     public var previousEncounter: Bool
-    public var roomsVisited: Int
+    public var roomsExplored: Int
     public var savedAt: Date
 
     // v2 additions
@@ -34,7 +34,7 @@ public struct SaveData: Codable, Equatable, Sendable {
                 doors: Int,
                 hasLooted: Bool,
                 previousEncounter: Bool,
-                roomsVisited: Int,
+                roomsExplored: Int,
                 savedAt: Date,
                 depth: Int,
                 bossPending: Bool,
@@ -47,7 +47,7 @@ public struct SaveData: Codable, Equatable, Sendable {
         self.doors = doors
         self.hasLooted = hasLooted
         self.previousEncounter = previousEncounter
-        self.roomsVisited = roomsVisited
+        self.roomsExplored = roomsExplored
         self.savedAt = savedAt
         self.depth = depth
         self.bossPending = bossPending
@@ -64,11 +64,11 @@ public struct SaveData: Codable, Equatable, Sendable {
         doors = try c.decode(Int.self, forKey: .doors)
         hasLooted = try c.decode(Bool.self, forKey: .hasLooted)
         previousEncounter = try c.decode(Bool.self, forKey: .previousEncounter)
-        roomsVisited = try c.decode(Int.self, forKey: .roomsVisited)
+        roomsExplored = try c.decode(Int.self, forKey: .roomsExplored)
         savedAt = try c.decode(Date.self, forKey: .savedAt)
-        // v2 fields: default for older saves. Depth falls back to roomsVisited
+        // v2 fields: default for older saves. Depth falls back to roomsExplored
         // so an old run keeps a sensible difficulty when resumed.
-        depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsVisited
+        depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsExplored
         bossPending = try c.decodeIfPresent(Bool.self, forKey: .bossPending) ?? false
         weaponInstances = try c.decodeIfPresent([WeaponInstance].self, forKey: .weaponInstances) ?? []
         roomModifier = try c.decodeIfPresent(RoomModifier.self, forKey: .roomModifier) ?? .none
@@ -152,7 +152,7 @@ public extension GameState {
             doors: doors,
             hasLooted: hasLooted,
             previousEncounter: previousEncounter,
-            roomsVisited: roomsVisited,
+            roomsExplored: roomsExplored,
             savedAt: Date(),
             depth: depth,
             bossPending: bossPending,
@@ -184,7 +184,7 @@ public extension GameState {
         doors = saved.doors
         hasLooted = saved.hasLooted
         previousEncounter = saved.previousEncounter
-        roomsVisited = saved.roomsVisited
+        roomsExplored = saved.roomsExplored
         depth = saved.depth
         bossPending = saved.bossPending
         roomModifier = saved.roomModifier

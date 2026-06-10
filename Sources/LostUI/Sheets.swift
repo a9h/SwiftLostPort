@@ -105,8 +105,7 @@ struct StatsSheet: View {
                 statLine("🍗 Hunger", "\(game.player.hunger) / 100")
                 statLine("🚰 Thirst", "\(game.player.thirst) / 100")
                 statLine("💷 Money", "£\(game.player.money)")
-                statLine("🪜 Depth", "\(game.depth)")
-                statLine("🚪 Rooms visited", "\(game.roomsVisited)")
+                statLine("🚪 Rooms Explored", "\(game.roomsExplored)")
             }
             .padding(14)
             .frame(maxWidth: .infinity)

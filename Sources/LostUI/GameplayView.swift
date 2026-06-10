@@ -85,6 +85,22 @@ struct HUDView: View {
                     .animation(.snappy, value: game.player.money)
             }
 
+            HStack(spacing: 12) {
+                Text("🚪 Rooms \(game.roomsExplored)")
+                    .font(.caption.monospaced())
+                if game.player.isPoisoned {
+                    Text("☠️ Poisoned (\(game.player.poisonRemaining))")
+                        .font(.caption.monospaced().bold())
+                        .foregroundStyle(.green)
+                }
+                if game.roomModifier != .none, case .room = game.screen {
+                    Text("\(game.roomModifier.emoji) \(game.roomModifier.rawValue.capitalized)")
+                        .font(.caption.monospaced().bold())
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+
             HStack(spacing: 10) {
                 StatBar(emoji: "❤️", value: game.player.currentHealth, max: max(game.player.maxHealth, 1), tint: .red,
                         label: "\(game.player.currentHealth)/\(game.player.maxHealth)")

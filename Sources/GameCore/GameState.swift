@@ -50,8 +50,8 @@ public final class GameState: ObservableObject {
     /// True right after fleeing/winning a fight; blocks back-to-back
     /// encounters and is consumed by the next room generation.
     @Published var previousEncounter = false
-    /// Rooms entered this run — drives enemy scaling (B1). Equal to
-    /// `roomsVisited` but kept distinct as the scaling/boss authority.
+    /// Internal scaling authority (B1), derived as `roomsExplored / 2` — depth
+    /// advances once every two rooms. Never shown to the player directly.
     @Published public internal(set) var depth = 0
     /// Armed when depth crosses a boss milestone; the next enemy
     /// encounter is forced to be a boss and the flag is consumed.
@@ -67,8 +67,8 @@ public final class GameState: ObservableObject {
 
     /// Message feed; the newest entry is typewriter-animated by the UI.
     @Published public internal(set) var log: [LogEntry] = []
-    /// Total rooms entered this run (UI flavour only).
-    @Published public internal(set) var roomsVisited = 0
+    /// Total rooms entered this run — shown in the HUD as "Rooms".
+    @Published public internal(set) var roomsExplored = 0
 
     public init(data: GameData = .load(),
                 rng: GameRandom = SystemGameRandom(),
@@ -97,7 +97,7 @@ public final class GameState: ObservableObject {
         depth = 0
         bossPending = false
         roomModifier = .none
-        roomsVisited = 0
+        roomsExplored = 0
         log = []
         say("Welcome to LOST. Find your way out... or don't.", .narration)
         generateRoom()
@@ -119,11 +119,12 @@ public final class GameState: ObservableObject {
         shopStock = nil
         hlRound = nil
         roomModifier = .none
-        roomsVisited += 1
-        depth += 1
-        // Crossing a boss milestone (50, 85, 120, ...) arms the next enemy
-        // encounter as a boss.
-        if Balance.Depth.isBossDepth(depth) { bossPending = true }
+        roomsExplored += 1
+        depth = roomsExplored / 2 // depth advances once every two rooms
+        // Crossing a boss milestone arms the next enemy encounter as a boss.
+        // Only on the room where depth just incremented (even room count), so a
+        // milestone arms exactly once even though depth repeats for two rooms.
+        if roomsExplored % 2 == 0 && Balance.Depth.isBossDepth(depth) { bossPending = true }
 
         // Hunger/thirst decay: 50% chance to lose 1–10 of each.
         if rng.int(in: 1...100) > 50 {
