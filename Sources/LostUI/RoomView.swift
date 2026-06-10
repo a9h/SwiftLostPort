@@ -67,10 +67,21 @@ struct RoomView: View {
     private var actionGrid: some View {
         let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
         return LazyVGrid(columns: columns, spacing: 8) {
-            ActionButton("Loot", "🔍", prominent: !game.hasLooted) {
+            // Loot is filled green while the room is still lootable, and reverts
+            // to a plain disabled style once picked clean.
+            Button {
                 game.loot()
                 lootBounce.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("🔍")
+                    Text("Loot").font(.callout.monospaced())
+                }
+                .frame(maxWidth: .infinity, minHeight: 34)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(game.hasLooted)
             ActionButton("Use", "🍽️") { sheet = .use }
             ActionButton("Inventory", "🎒") { sheet = .inventory }
             ActionButton("Health", "❤️") { sheet = .stats }

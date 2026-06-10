@@ -418,26 +418,39 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Room modifiers (B3)
 
-    func testRoomModifierRollThresholds() {
-        XCTAssertEqual(RoomModifier.roll(1), .trap)
-        XCTAssertEqual(RoomModifier.roll(12), .trap)
-        XCTAssertEqual(RoomModifier.roll(13), .dark)
-        XCTAssertEqual(RoomModifier.roll(24), .dark)
-        XCTAssertEqual(RoomModifier.roll(25), .flooded)
-        XCTAssertEqual(RoomModifier.roll(34), .flooded)
-        XCTAssertEqual(RoomModifier.roll(35), .none)
-        XCTAssertEqual(RoomModifier.roll(100), .none)
+    func testRoomModifierFrequencyByDepth() {
+        // Early (depth < 50): trap 1-5, dark 6-10, flooded 11-14, else none.
+        XCTAssertEqual(RoomModifier.roll(1, depth: 0), .trap)
+        XCTAssertEqual(RoomModifier.roll(5, depth: 0), .trap)
+        XCTAssertEqual(RoomModifier.roll(6, depth: 0), .dark)
+        XCTAssertEqual(RoomModifier.roll(10, depth: 0), .dark)
+        XCTAssertEqual(RoomModifier.roll(11, depth: 0), .flooded)
+        XCTAssertEqual(RoomModifier.roll(14, depth: 0), .flooded)
+        XCTAssertEqual(RoomModifier.roll(15, depth: 0), .none)
+        XCTAssertEqual(RoomModifier.roll(100, depth: 0), .none)
+
+        // Late (depth >= 50): trap 1-9, dark 10-17, flooded 18-24, else none.
+        XCTAssertEqual(RoomModifier.roll(9, depth: 50), .trap)
+        XCTAssertEqual(RoomModifier.roll(10, depth: 50), .dark)
+        XCTAssertEqual(RoomModifier.roll(17, depth: 50), .dark)
+        XCTAssertEqual(RoomModifier.roll(18, depth: 50), .flooded)
+        XCTAssertEqual(RoomModifier.roll(24, depth: 50), .flooded)
+        XCTAssertEqual(RoomModifier.roll(25, depth: 50), .none)
+        // A value that's "none" early becomes a hazard late.
+        XCTAssertEqual(RoomModifier.roll(16, depth: 0), .none)
+        XCTAssertEqual(RoomModifier.roll(16, depth: 50), .dark)
     }
 
     func testTunnelDarkBiasWidensDarkBand() {
         // With the Tunnel bonus, values that would be flooded/none become dark.
         let bonus = Balance.RoomModifiers.tunnelDarkBonus
-        XCTAssertEqual(RoomModifier.roll(40, darkBonus: bonus), .dark) // 40 <= 12+12+38
-        XCTAssertEqual(RoomModifier.roll(50, darkBonus: bonus), .dark)
+        // Early dark band is 6-10; the bonus widens it to 6-48.
+        XCTAssertEqual(RoomModifier.roll(40, depth: 0, darkBonus: bonus), .dark)
+        XCTAssertEqual(RoomModifier.roll(48, depth: 0, darkBonus: bonus), .dark)
         // Trap chance is unchanged by the bonus.
-        XCTAssertEqual(RoomModifier.roll(12, darkBonus: bonus), .trap)
+        XCTAssertEqual(RoomModifier.roll(5, depth: 0, darkBonus: bonus), .trap)
         // Without the bonus, 40 is a normal room.
-        XCTAssertEqual(RoomModifier.roll(40), .none)
+        XCTAssertEqual(RoomModifier.roll(40, depth: 0), .none)
     }
 
     // MARK: - Loot door luck (rebalance 2d: verify, not rewrite)
@@ -461,18 +474,18 @@ final class GameCoreTests: XCTestCase {
 
     func testTrapRoomDealsArmourReducedDamageOnEntry() {
         // Enter a trap room: decay 50, trader 100, encounter 100, room 4,
-        // doors 1, modifier 1 (trap), trap damage roll 25.
+        // doors 1, modifier 1 (trap, early band), trap damage roll 25.
         let game = makeGame(script: [50, 100, 100, 4, 1, 1, 25])
         game.startNewGame()
         XCTAssertEqual(game.roomModifier, .trap)
-        // depth 1: trap range 10...25 * 1.03 -> 10...26, roll 25 clamped within;
+        // depth 0 (room 1): no scaling. trap range 10...25, roll 25;
         // no armour -> afterFlat 23 -> 23 damage.
         XCTAssertEqual(game.player.currentHealth, 100 - 23)
     }
 
     func testDarkRoomBlocksLootingWithoutTorch() {
-        // modifier 13 -> dark.
-        let game = makeGame(script: [50, 100, 100, 4, 1, 13])
+        // modifier 8 -> dark (early band 6-10).
+        let game = makeGame(script: [50, 100, 100, 4, 1, 8])
         game.startNewGame()
         XCTAssertEqual(game.roomModifier, .dark)
         game.loot() // no torch -> blocked, no roll consumed
@@ -489,23 +502,21 @@ final class GameCoreTests: XCTestCase {
     }
 
     func testFloodedRoomDamagesWhenNoBoots() {
-        // modifier 25 -> flooded, water damage roll 15.
-        let game = makeGame(script: [50, 100, 100, 4, 1, 25, 15])
+        // modifier 12 -> flooded (early band 11-14), water damage roll 15.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 12, 15])
         game.startNewGame()
         XCTAssertEqual(game.roomModifier, .flooded)
         XCTAssertEqual(game.player.currentHealth, 100 - 15) // not armour-reduced
     }
 
     func testFloodedRoomSafeWithBoots() {
-        // Pre-place the player with leg armour, then enter a flooded room.
-        // Use startInRoom then verify by re-entering. Simplest: set legs and
-        // build the flooded room directly.
-        let game = makeGame(script: [50, 100, 100, 4, 1, 25, 15])
+        // Enter a flooded room (modifier 12) with no boots, then with boots.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 12, 15])
         game.startNewGame() // takes 15 with no boots
         XCTAssertEqual(game.player.currentHealth, 85)
         // Now give boots and walk into another flooded room.
         game.player.armour.legs = 15
-        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 25, 15])
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 12, 15])
         game.takeDoor(1)
         XCTAssertEqual(game.roomModifier, .flooded)
         XCTAssertEqual(game.player.currentHealth, 85) // unchanged — boots kept it dry

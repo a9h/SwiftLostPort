@@ -147,17 +147,27 @@ public enum Balance {
     // MARK: - Room modifiers (B3)
 
     public enum RoomModifiers {
-        /// Roll thresholds out of 100; remainder is a normal room.
-        public static let trapChance = 12
-        public static let darkChance = 12
-        public static let floodedChance = 10
-        /// Extra dark-modifier width for the Tunnel room (12 + 38 = ~50% dark).
+        /// Modifier chances out of 100 before the scaling depth (calmer early game).
+        public static let earlyTrapChance = 5
+        public static let earlyDarkChance = 5
+        public static let earlyFloodedChance = 4
+        /// Modifier chances from the scaling depth onward (rooms get nastier).
+        public static let lateTrapChance = 9
+        public static let lateDarkChance = 8
+        public static let lateFloodedChance = 7
+        /// Internal depth at/after which the late chances apply (= 100 rooms).
+        public static let scalingDepth = 50
+        /// Extra dark-modifier width for the Tunnel room (trends dark).
         public static let tunnelDarkBonus = 38
 
         /// Trap damage (depth-scaled, armour-reduced).
         public static let trapDamageRange = 10...25
         /// Flooded damage when no boots equipped (environmental, NOT reduced).
         public static let floodedDamageRange = 5...15
+
+        public static func trapChance(depth: Int) -> Int { depth < scalingDepth ? earlyTrapChance : lateTrapChance }
+        public static func darkChance(depth: Int) -> Int { depth < scalingDepth ? earlyDarkChance : lateDarkChance }
+        public static func floodedChance(depth: Int) -> Int { depth < scalingDepth ? earlyFloodedChance : lateFloodedChance }
     }
 
     // MARK: - Scavenger trader + upgrades (B4)
