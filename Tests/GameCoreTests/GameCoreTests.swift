@@ -736,10 +736,11 @@ final class GameCoreTests: XCTestCase {
 
     func testShopWeaponAppearsAndIsBuyable() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // loadShop: food choices 0,1 distinct; tool roll 50 (<100 -> grindstone, choice 0);
-        // weapon roll 30 (>25 -> stocked, choice 0 -> longsword (sorted)).
-        game.rng = ScriptedGameRandom([0, 1, 50, 0, 30, 0])
+        // trader-kind 50 (>40 -> merchant); loadShop: foods 0,1; tool roll 50
+        // (<100 -> grindstone, choice 0); weapon roll 30 (>25 -> longsword).
+        game.rng = ScriptedGameRandom([50, 0, 1, 50, 0, 30, 0])
         game.startTrader()
+        XCTAssertEqual(game.traderKind, .merchant)
         XCTAssertEqual(game.shopStock?.weapon, "longsword")
         // Can't afford £150 with £50 — insufficient-funds check applies to weapons too.
         game.buy("longsword")
@@ -753,13 +754,96 @@ final class GameCoreTests: XCTestCase {
 
     func testShopStocksTwoDistinctFoods() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // Food choices collide (0, 0) then resolve (1); tool roll, tool choice; weapon roll 10 (no weapon).
-        game.rng = ScriptedGameRandom([0, 0, 1, 50, 0, 10])
+        // trader-kind 50 (merchant); foods collide (0,0) then resolve (1);
+        // tool roll/choice; weapon roll 10 (no weapon).
+        game.rng = ScriptedGameRandom([50, 0, 0, 1, 50, 0, 10])
         game.startTrader()
+        XCTAssertEqual(game.traderKind, .merchant)
         let foods = game.shopStock?.foods ?? []
         XCTAssertEqual(foods.count, 2)
         XCTAssertEqual(Set(foods).count, 2)
         XCTAssertNil(game.shopStock?.weapon)
+    }
+
+    // MARK: - Scavenger trader + grindstone (Part 5)
+
+    func testScavengerAppearsOnLowRoll() {
+        let scav = startInRoom(doors: 1, thenScript: [])
+        scav.rng = ScriptedGameRandom([20]) // <=40 -> scavenger
+        scav.startTrader()
+        XCTAssertEqual(scav.traderKind, .scavenger)
+        XCTAssertNil(scav.shopStock)
+
+        let merch = startInRoom(doors: 1, thenScript: [])
+        merch.rng = ScriptedGameRandom([50, 0, 1, 50, 0, 10]) // >40 -> merchant + loadShop
+        merch.startTrader()
+        XCTAssertEqual(merch.traderKind, .merchant)
+        XCTAssertNotNil(merch.shopStock)
+    }
+
+    func testScavengerSellPricesBaseAndDurabilityScaled() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("scrapmetal", count: 3)
+        XCTAssertEqual(game.sellPrice(of: "scrapmetal"), 8) // non-weapon base
+        game.inventory.add("sword") // 30/30
+        XCTAssertEqual(game.sellPrice(of: "sword"), 40) // full durability -> base
+        for _ in 0..<15 { _ = game.inventory.degradeWeapon("sword") } // 15/30
+        XCTAssertEqual(game.sellPrice(of: "sword"), 20) // 40 * 0.5
+    }
+
+    func testScavengerBuysItemForMoney() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.screen = .trader
+        game.traderKind = .scavenger
+        game.inventory.add("iron", count: 2)
+        let before = game.player.money
+        game.sell("iron")
+        XCTAssertEqual(game.player.money, before + 20)
+        XCTAssertEqual(game.inventory.count(of: "iron"), 1)
+    }
+
+    func testWeaponConversionConsumesSourceAndScrap() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("knife")
+        game.inventory.add("scrapmetal", count: 5)
+        XCTAssertTrue(game.canConvertWeapon("knife"))
+        game.convertWeapon("knife")
+        XCTAssertEqual(game.inventory.count(of: "knife"), 0)
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 1) // 5 - 4
+        XCTAssertEqual(game.inventory.count(of: "sword"), 1)
+        XCTAssertEqual(game.inventory.upgradeLevel(of: "sword"), 0) // full, fresh
+    }
+
+    func testWeaponDamageUpgradeDeductionAndCap() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("knife") // cap 3
+        game.inventory.add("scrapmetal", count: 10)
+        for expected in 1...3 {
+            XCTAssertTrue(game.canUpgradeWeaponDamage("knife"))
+            game.upgradeWeaponDamage("knife")
+            XCTAssertEqual(game.inventory.upgradeLevel(of: "knife"), expected)
+        }
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 1) // 10 - 3*3
+        XCTAssertFalse(game.canUpgradeWeaponDamage("knife")) // at cap
+        game.upgradeWeaponDamage("knife") // no-op at cap
+        XCTAssertEqual(game.inventory.upgradeLevel(of: "knife"), 3)
+    }
+
+    func testUpgradeBonusAppliesInCombat() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        game.inventory.add("knife")
+        game.inventory.add("scrapmetal", count: 6)
+        game.upgradeWeaponDamage("knife")
+        game.upgradeWeaponDamage("knife") // level 2 -> +10
+        XCTAssertEqual(game.inventory.upgradeBonus(of: "knife"), 10)
+        game.rng = ScriptedGameRandom([150, 0]) // easy, HP 75
+        game.startEncounter()
+        game.enemy?.hp = 1000
+        game.beginFight()
+        game.rng = ScriptedGameRandom([0, 3]) // knife idx0=40 (+10), counter raw 3
+        game.attack(with: "knife")
+        XCTAssertEqual(game.enemy?.hp, 1000 - 50)
     }
 
     // MARK: - Save / load round trip

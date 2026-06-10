@@ -42,12 +42,24 @@ public enum HLGuess: Equatable, Sendable {
     case exact(Int)
 }
 
+/// Which kind of trader appeared (Part 5a).
+public enum TraderKind: String, Codable, Sendable {
+    case merchant, scavenger
+}
+
 public extension GameState {
 
     internal func startTrader() {
-        loadShop()
         screen = .trader
-        say("You have come across a wild trader, who is willing to sell items to you for a fee. The trader will also play games with you...", .narration)
+        if rng.int(in: 1...100) <= Balance.Scavenger.chancePercent {
+            traderKind = .scavenger
+            shopStock = nil
+            say("A hunched scavenger 🪤 eyes your pack — they don't sell, but they'll buy what you've scrounged. Try 'sell', or 'games' to gamble.", .narration)
+        } else {
+            traderKind = .merchant
+            loadShop()
+            say("You have come across a wild trader, who is willing to sell items to you for a fee. The trader will also play games with you...", .narration)
+        }
     }
 
     /// `loadShop` — two distinct foods, a tool almost always, a weapon ~50%
@@ -96,6 +108,36 @@ public extension GameState {
         hlRound = nil
         say("You wave the trader goodbye and move on.", .narration)
         generateRoom()
+    }
+
+    // MARK: - Scavenger selling (Part 5a)
+
+    /// Inventory items the scavenger will buy, with their (durability-scaled)
+    /// prices — for the sell screen.
+    var sellableItems: [(id: String, count: Int, price: Int)] {
+        inventory.allItems
+            .filter { Balance.Scavenger.sellPrices[$0.id] != nil }
+            .map { (id: $0.id, count: $0.count, price: sellPrice(of: $0.id)) }
+    }
+
+    /// What the scavenger pays for one of `itemID`. Weapons are scaled by the
+    /// most-worn instance's remaining durability fraction (minimum £1).
+    func sellPrice(of itemID: String) -> Int {
+        guard let base = Balance.Scavenger.sellPrices[itemID] else { return 0 }
+        if let worn = inventory.mostWornWeapon(of: itemID) {
+            return max(1, Int((Double(base) * worn.durabilityFraction).rounded()))
+        }
+        return base
+    }
+
+    /// Sell one of an item to the scavenger.
+    func sell(_ itemID: String) {
+        guard screen == .trader, traderKind == .scavenger,
+              Balance.Scavenger.sellPrices[itemID] != nil, inventory.has(itemID) else { return }
+        let price = sellPrice(of: itemID)
+        inventory.remove(itemID)
+        player.money += price
+        say("The scavenger takes your \(ItemCatalog.label(itemID)) and presses £\(price) into your palm.", .reward)
     }
 
     // MARK: - 50/50 (coin flip)

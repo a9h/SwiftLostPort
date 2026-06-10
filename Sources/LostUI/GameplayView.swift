@@ -2,7 +2,7 @@ import SwiftUI
 import GameCore
 
 enum ActiveSheet: String, Identifiable {
-    case inventory, stats, armour, crafting, breakdown, equip, drop, use, saveLoad, help, debug
+    case inventory, stats, armour, crafting, breakdown, equip, drop, use, saveLoad, help, debug, grindstone
     var id: String { rawValue }
 }
 
@@ -57,6 +57,7 @@ struct GameplayView: View {
         case .saveLoad: SaveLoadSheet()
         case .help: HelpSheet()
         case .debug: DebugSheet()
+        case .grindstone: GrindstoneSheet()
         }
     }
 }

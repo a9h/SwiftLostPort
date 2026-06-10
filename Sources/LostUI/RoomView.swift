@@ -89,6 +89,7 @@ struct RoomView: View {
             ActionButton("Equip", "🪖") { sheet = .equip }
             ActionButton("Crafting", "🛠️") { sheet = .crafting }
             ActionButton("Breakdown", "🪨") { sheet = .breakdown }
+            ActionButton("Grindstone", "🪒") { sheet = .grindstone }
             ActionButton("Drop", "🗑️") { sheet = .drop }
             ActionButton("Save/Load", "💾") { sheet = .saveLoad }
             ActionButton("Help", "❓") { sheet = .help }

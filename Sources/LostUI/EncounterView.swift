@@ -110,9 +110,11 @@ struct EncounterView: View {
     /// remaining durability (the one a swing will use).
     private func weaponSubtitle(_ weaponID: String, count: Int) -> String {
         if weaponID == "torch" { return "25% scare ×\(count)" }
+        let lvl = game.inventory.upgradeLevel(of: weaponID)
+        let prefix = lvl > 0 ? "+\(lvl) " : ""
         if let best = game.inventory.instances(of: weaponID).first,
            let d = best.durability, let m = best.maxDurability {
-            return count > 1 ? "\(d)/\(m) ×\(count)" : "\(d)/\(m)"
+            return count > 1 ? "\(prefix)\(d)/\(m) ×\(count)" : "\(prefix)\(d)/\(m)"
         }
         return "×\(count)"
     }

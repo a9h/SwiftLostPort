@@ -117,7 +117,7 @@ public extension GameState {
             if enemy?.boss == .cowboy && rng.int(in: 1...100) < Balance.Bosses.cowboyDodgePercent {
                 say("The Cowboy sidesteps your swing!", .combat)
             } else {
-                let damage = rng.choice(damages)
+                let damage = rng.choice(damages) + inventory.upgradeBonus(of: weaponID)
                 enemy?.hp -= damage
                 say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
                 if inventory.degradeWeapon(weaponID) == true {

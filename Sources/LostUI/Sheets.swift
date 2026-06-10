@@ -57,11 +57,12 @@ struct InventorySheet: View {
     @EnvironmentObject private var game: GameState
     @State private var category: ItemCategory = .consumable
 
-    /// "24/30" for one weapon, "30/30, 24/30" for several; "∞" for the torch.
+    /// e.g. "+2 24/30" per instance ("∞" for the torch).
     private func durabilityDetail(_ weaponID: String) -> String {
         let parts = game.inventory.instances(of: weaponID).map { inst -> String in
-            if let d = inst.durability, let m = inst.maxDurability { return "\(d)/\(m)" }
-            return "∞"
+            let lvl = inst.upgradeLevel > 0 ? "+\(inst.upgradeLevel) " : ""
+            if let d = inst.durability, let m = inst.maxDurability { return "\(lvl)\(d)/\(m)" }
+            return "\(lvl)∞"
         }
         return parts.joined(separator: ", ")
     }
@@ -485,6 +486,72 @@ struct DebugSheet: View {
             Text("Known ids: \(ItemCatalog.all.keys.sorted().joined(separator: ", "))")
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Grindstone (convert + sharpen)
+
+struct GrindstoneSheet: View {
+    @EnvironmentObject private var game: GameState
+
+    /// Free at a trader; otherwise needs a grindstone in the pack.
+    private var available: Bool {
+        if case .trader = game.screen { return true }
+        return game.hasGrindstone
+    }
+
+    var body: some View {
+        SheetScaffold(title: "🪒 Grindstone") {
+            if !available {
+                ContentUnavailableView("You do not have a grindstone!", systemImage: "circle.slash",
+                                       description: Text("Buy one from a merchant (£125), or use a trader's free grindstone."))
+            } else {
+                Text("🔩 ×\(game.inventory.count(of: "scrapmetal")) scrap metal")
+                    .font(.callout.monospaced())
+                ScrollView {
+                    VStack(spacing: 8) {
+                        Text("Convert a weapon")
+                            .font(.callout.monospaced().bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        let convertible = game.weaponConversions.filter { game.inventory.has($0.source) }
+                        if convertible.isEmpty {
+                            Text("Nothing to convert.").font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        ForEach(convertible, id: \.source) { recipe in
+                            ItemRow(
+                                id: recipe.source,
+                                count: game.inventory.count(of: recipe.source),
+                                detail: "+\(recipe.cost)× 🔩 → \(ItemCatalog.label(recipe.result))",
+                                actionLabel: "Convert",
+                                actionDisabled: !game.canConvertWeapon(recipe.source),
+                                action: { game.convertWeapon(recipe.source) }
+                            )
+                        }
+
+                        Divider().padding(.vertical, 4)
+
+                        Text("Sharpen for +\(GameCore.Balance.Grindstone.upgradeDamageBonus) damage (\(GameCore.Balance.Grindstone.upgradeCost)× 🔩 each)")
+                            .font(.callout.monospaced().bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if game.upgradeableWeapons.isEmpty {
+                            Text("No upgradeable weapons.").font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        ForEach(game.upgradeableWeapons, id: \.id) { weapon in
+                            let level = game.inventory.upgradeLevel(of: weapon.id)
+                            let cap = GameCore.Balance.Grindstone.cap(for: weapon.id)
+                            ItemRow(
+                                id: weapon.id,
+                                count: weapon.count,
+                                detail: "+\(level)/\(cap)",
+                                actionLabel: level >= cap ? "Maxed" : "Sharpen",
+                                actionDisabled: !game.canUpgradeWeaponDamage(weapon.id),
+                                action: { game.upgradeWeaponDamage(weapon.id) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

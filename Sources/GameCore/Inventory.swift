@@ -9,11 +9,15 @@ public struct WeaponInstance: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public var durability: Int?
     public let maxDurability: Int?
+    /// Damage-upgrade level (Part 5b): each level adds a flat bonus to every
+    /// value in this instance's damage array.
+    public var upgradeLevel: Int
 
     /// Fresh instance at full durability for its type.
     public init(id: String, instanceID: UUID = UUID()) {
         self.instanceID = instanceID
         self.id = id
+        self.upgradeLevel = 0
         if let maxD = Balance.Durability.maxByWeapon[id] {
             self.durability = maxD
             self.maxDurability = maxD
@@ -24,12 +28,29 @@ public struct WeaponInstance: Codable, Equatable, Identifiable, Sendable {
     }
 
     /// Instance with explicit durability (used by upgrades / hardened blades).
-    public init(id: String, durability: Int?, maxDurability: Int?, instanceID: UUID = UUID()) {
+    public init(id: String, durability: Int?, maxDurability: Int?, upgradeLevel: Int = 0, instanceID: UUID = UUID()) {
         self.instanceID = instanceID
         self.id = id
         self.durability = durability
         self.maxDurability = maxDurability
+        self.upgradeLevel = upgradeLevel
     }
+
+    // Custom decode so older saves (no upgradeLevel key) default to 0.
+    enum CodingKeys: String, CodingKey {
+        case instanceID, id, durability, maxDurability, upgradeLevel
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        instanceID = try c.decode(UUID.self, forKey: .instanceID)
+        id = try c.decode(String.self, forKey: .id)
+        durability = try c.decodeIfPresent(Int.self, forKey: .durability)
+        maxDurability = try c.decodeIfPresent(Int.self, forKey: .maxDurability)
+        upgradeLevel = try c.decodeIfPresent(Int.self, forKey: .upgradeLevel) ?? 0
+    }
+
+    /// Total flat damage bonus from upgrades.
+    public var damageBonus: Int { upgradeLevel * Balance.Grindstone.upgradeDamageBonus }
 
     /// 0...1 fraction remaining (1 if untracked). Drives worn-weapon sell pricing.
     public var durabilityFraction: Double {
@@ -116,7 +137,43 @@ public struct Inventory: Codable, Equatable, Sendable {
         weapons.filter { $0.id == itemID }.min { durabilityKey($0) < durabilityKey($1) }
     }
 
-    /// Wears the least-durable tracked instance of a type by one hit.
+    /// Index of the "active" instance of a type — the most-worn one, which is
+    /// what swings in combat (and so wears, takes the upgrade, and provides the
+    /// damage bonus). Untracked instances (torch) sort last.
+    func activeWeaponIndex(of itemID: String) -> Int? {
+        weapons.indices
+            .filter { weapons[$0].id == itemID }
+            .min { durabilityKey(weapons[$0]) < durabilityKey(weapons[$1]) }
+    }
+
+    /// Damage bonus contributed by the active instance of a weapon type.
+    public func upgradeBonus(of itemID: String) -> Int {
+        guard let idx = activeWeaponIndex(of: itemID) else { return 0 }
+        return weapons[idx].damageBonus
+    }
+
+    /// The active instance's current upgrade level (0 if none owned).
+    public func upgradeLevel(of itemID: String) -> Int {
+        guard let idx = activeWeaponIndex(of: itemID) else { return 0 }
+        return weapons[idx].upgradeLevel
+    }
+
+    /// True if the active instance can still be upgraded (below its cap).
+    public func canUpgradeWeapon(_ itemID: String) -> Bool {
+        guard let idx = activeWeaponIndex(of: itemID) else { return false }
+        return weapons[idx].upgradeLevel < Balance.Grindstone.cap(for: itemID)
+    }
+
+    /// Upgrades the active instance by one level if below its cap.
+    @discardableResult
+    public mutating func upgradeWeapon(_ itemID: String) -> Bool {
+        guard let idx = activeWeaponIndex(of: itemID),
+              weapons[idx].upgradeLevel < Balance.Grindstone.cap(for: itemID) else { return false }
+        weapons[idx].upgradeLevel += 1
+        return true
+    }
+
+    /// Wears the active (most-worn) tracked instance of a type by one hit.
     /// Returns true if it broke (and was removed), false if it merely wore,
     /// nil if there's no durability-tracked instance (e.g. the torch).
     public mutating func degradeWeapon(_ itemID: String) -> Bool? {

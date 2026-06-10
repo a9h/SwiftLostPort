@@ -67,6 +67,7 @@ public final class GameState: ObservableObject {
     @Published public internal(set) var encounterPhase: EncounterPhase = .choosing
 
     // Current trader
+    @Published public internal(set) var traderKind: TraderKind = .merchant
     @Published public internal(set) var shopStock: ShopStock?
     @Published public internal(set) var hlRound: HLRound?
 

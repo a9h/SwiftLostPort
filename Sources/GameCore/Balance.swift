@@ -170,27 +170,54 @@ public enum Balance {
         public static func floodedChance(depth: Int) -> Int { depth < scalingDepth ? earlyFloodedChance : lateFloodedChance }
     }
 
-    // MARK: - Scavenger trader + upgrades (B4)
+    // MARK: - Scavenger trader (Part 5a)
 
     public enum Scavenger {
         /// Chance a rolled trader is a scavenger (else a normal merchant).
         public static let chancePercent = 40
 
-        /// Buy-back prices the scavenger pays for player items.
+        /// Base buy-back prices the scavenger pays. Weapon prices are scaled by
+        /// remaining durability fraction at sell time (minimum £1).
         public static let sellPrices: [String: Int] = [
             "scrapmetal": 8, "iron": 20, "ironBar": 35,
-            // food / consumables
-            "tomato": 10, "carrot": 10, "waterbottle": 15, "chocolate": 15,
-            "steak": 20, "cannedfood": 18, "mushroom": 12,
-            "bandage": 12, "medicine": 18, "medkit": 25, "pills": 30,
+            // food / consumables — £12 each
+            "cannedfood": 12, "chocolate": 12, "carrot": 12, "tomato": 12,
+            "mushroom": 12, "waterbottle": 12, "steak": 12,
+            // health
+            "bandage": 15, "medicine": 20, "medkit": 25, "pills": 30,
             // weapons (~40% of shop price)
-            "knife": 15, "fork": 8, "bat": 12, "crowbar": 16, "branch": 5,
-            "shovel": 16, "sword": 40, "longsword": 60,
+            "fork": 8, "branch": 8, "knife": 16, "bat": 20, "shovel": 20,
+            "crowbar": 20, "sword": 40, "longsword": 60,
             // armour
             "scrapHelmet": 18, "scrapBoots": 12, "scrapChestplate": 20,
             "ironHelmet": 30, "ironBoots": 25, "ironChestplate": 40,
             // tools
             "grindstone": 50,
         ]
+    }
+
+    // MARK: - Grindstone system (Part 5b)
+
+    public enum Grindstone {
+        /// Weapon conversion recipes: source weapon + scrap -> better weapon.
+        public struct Conversion { public let result: String; public let scrapCost: Int }
+        public static let conversions: [String: Conversion] = [
+            "knife": Conversion(result: "sword", scrapCost: 4),
+            "bat": Conversion(result: "crowbar", scrapCost: 3),
+            "crowbar": Conversion(result: "shovel", scrapCost: 5),
+            "sword": Conversion(result: "longsword", scrapCost: 6),
+        ]
+
+        /// Per-weapon damage-upgrade caps (number of +bonus upgrades allowed).
+        public static let upgradeCaps: [String: Int] = [
+            "branch": 2, "fork": 2, "bat": 3, "shovel": 3,
+            "crowbar": 3, "knife": 3, "sword": 4, "longsword": 3,
+        ]
+        /// Scrapmetal cost per damage upgrade.
+        public static let upgradeCost = 3
+        /// Flat damage added to every value in the array, per upgrade level.
+        public static let upgradeDamageBonus = 5
+
+        public static func cap(for weaponID: String) -> Int { upgradeCaps[weaponID] ?? 0 }
     }
 }
