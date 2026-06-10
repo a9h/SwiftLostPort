@@ -4,7 +4,7 @@ import GameCore
 /// Enemy encounter: RUN / FIGHT / USE (plus inventory, health, drop),
 /// and the weapon picker once a fight starts.
 struct EncounterView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @Binding var sheet: ActiveSheet?
     @State private var shake = false
 

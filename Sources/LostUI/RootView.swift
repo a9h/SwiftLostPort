@@ -26,7 +26,7 @@ public struct LostRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: screenKey)
-        .environment(game)
+        .environmentObject(game)
         #if os(macOS)
         .frame(minWidth: 540, minHeight: 700)
         #endif

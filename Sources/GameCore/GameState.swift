@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 
 /// The game flow as explicit state — replaces the original's
 /// recursive menu functions.
@@ -33,36 +32,35 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
     }
 }
 
-@Observable
-public final class GameState {
+public final class GameState: ObservableObject {
     public let data: GameData
-    @ObservationIgnored var rng: GameRandom
-    @ObservationIgnored let saveStore: SaveStore
+    var rng: GameRandom
+    let saveStore: SaveStore
 
-    public internal(set) var screen: Screen = .title
-    public internal(set) var player = Player()
-    public internal(set) var inventory = Inventory()
+    @Published public internal(set) var screen: Screen = .title
+    @Published public internal(set) var player = Player()
+    @Published public internal(set) var inventory = Inventory()
 
     // Current room
-    public internal(set) var roomName: String = ""
-    public internal(set) var doors: Int = 1
-    public internal(set) var hasLooted = false
+    @Published public internal(set) var roomName: String = ""
+    @Published public internal(set) var doors: Int = 1
+    @Published public internal(set) var hasLooted = false
     /// True right after fleeing/winning a fight; blocks back-to-back
     /// encounters and is consumed by the next room generation.
-    var previousEncounter = false
+    @Published var previousEncounter = false
 
     // Current encounter
-    public internal(set) var enemy: Enemy?
-    public internal(set) var encounterPhase: EncounterPhase = .choosing
+    @Published public internal(set) var enemy: Enemy?
+    @Published public internal(set) var encounterPhase: EncounterPhase = .choosing
 
     // Current trader
-    public internal(set) var shopStock: ShopStock?
-    public internal(set) var hlRound: HLRound?
+    @Published public internal(set) var shopStock: ShopStock?
+    @Published public internal(set) var hlRound: HLRound?
 
     /// Message feed; the newest entry is typewriter-animated by the UI.
-    public internal(set) var log: [LogEntry] = []
+    @Published public internal(set) var log: [LogEntry] = []
     /// Total rooms entered this run (UI flavour only).
-    public internal(set) var roomsVisited = 0
+    @Published public internal(set) var roomsVisited = 0
 
     public init(data: GameData = .load(),
                 rng: GameRandom = SystemGameRandom(),

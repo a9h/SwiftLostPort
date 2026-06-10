@@ -33,16 +33,31 @@ public struct GameData: Sendable {
     }
 
     private static func decode<T: Decodable>(_ name: String, from bundle: Bundle) -> T {
-        // Try the primary bundle first, then Bundle.main (for simulator compatibility).
-        let bundles = [bundle, Bundle.main]
-        for tryBundle in bundles {
+        // Search the SPM module bundle, the main app bundle, any embedded
+        // resource sub-bundle (Lost_GameCore.bundle), and all loaded bundles.
+        var candidates: [Bundle] = [bundle, Bundle.main]
+
+        // When used as a package dependency in an Xcode project, resources
+        // land in a sub-bundle inside the .app.
+        let subBundleNames = ["Lost_GameCore", "GameCore", "LostGame"]
+        for name in subBundleNames {
+            if let url = Bundle.main.url(forResource: name, withExtension: "bundle"),
+               let sub = Bundle(url: url) {
+                candidates.append(sub)
+            }
+        }
+
+        // Last resort: search every loaded bundle.
+        candidates += Bundle.allBundles + Bundle.allFrameworks
+
+        for tryBundle in candidates {
             if let url = tryBundle.url(forResource: name, withExtension: "json"),
                let data = try? Data(contentsOf: url),
                let decoded = try? JSONDecoder().decode(T.self, from: data) {
                 return decoded
             }
         }
-        fatalError("Missing or malformed game data resource: \(name).json")
+        fatalError("Missing game data: \(name).json — checked \(candidates.count) bundles")
     }
 }
 

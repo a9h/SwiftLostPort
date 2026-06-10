@@ -4,7 +4,7 @@ import GameCore
 /// Start screen: the old box-drawing logo rendered as styled SwiftUI,
 /// with New Game / Continue.
 struct TitleView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var showLoadPicker = false
     @State private var showDebug = false
 

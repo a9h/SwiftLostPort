@@ -9,7 +9,7 @@ enum ActiveSheet: String, Identifiable {
 /// Shared shell for room / encounter / trader: HUD on top, the screen's
 /// own content in the middle, the message log at the bottom.
 struct GameplayView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var sheet: ActiveSheet?
 
     var body: some View {
@@ -36,7 +36,7 @@ struct GameplayView: View {
         .padding(12)
         .sheet(item: $sheet) { which in
             sheetContent(which)
-                .environment(game)
+                .environmentObject(game)
                 #if os(macOS)
                 .frame(minWidth: 420, minHeight: 460)
                 #endif
@@ -63,7 +63,7 @@ struct GameplayView: View {
 
 /// Persistent HUD: ❤️ 🍗 🚰 bars, 💷 money, room + doors.
 struct HUDView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     var onTitleHold: () -> Void = {}
 
     var body: some View {

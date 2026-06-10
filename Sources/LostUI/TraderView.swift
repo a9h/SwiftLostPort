@@ -4,7 +4,7 @@ import GameCore
 /// The wild trader: shop stock with buy-confirmation, gambling games,
 /// and the usual utility actions.
 struct TraderView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @Binding var sheet: ActiveSheet?
 
     @State private var confirmingItem: String?
@@ -64,7 +64,7 @@ struct TraderView: View {
         }
         .sheet(isPresented: $showGames) {
             GamesSheet()
-                .environment(game)
+                .environmentObject(game)
                 #if os(macOS)
                 .frame(minWidth: 440, minHeight: 520)
                 #endif

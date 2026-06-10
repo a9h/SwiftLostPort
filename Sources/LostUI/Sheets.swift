@@ -54,7 +54,7 @@ struct ItemRow: View {
 // MARK: - Inventory (categorised, like the original's < / > pages)
 
 struct InventorySheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var category: ItemCategory = .consumable
 
     var body: some View {
@@ -86,7 +86,7 @@ struct InventorySheet: View {
 // MARK: - Stats ("health" command)
 
 struct StatsSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "❤️ Stats") {
@@ -118,7 +118,7 @@ struct StatsSheet: View {
 // MARK: - Armour figure
 
 struct ArmourSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "🛡️ Armour") {
@@ -153,7 +153,7 @@ struct ArmourSheet: View {
 // MARK: - Crafting
 
 struct CraftingSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "🛠️ Crafting") {
@@ -197,7 +197,7 @@ struct CraftingSheet: View {
 // MARK: - Breakdown
 
 struct BreakdownSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "🪨 Breakdown") {
@@ -234,7 +234,7 @@ struct BreakdownSheet: View {
 // MARK: - Equip
 
 struct EquipSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "🪖 Equip Armour") {
@@ -273,7 +273,7 @@ struct EquipSheet: View {
 // MARK: - Drop (with confirmation)
 
 struct DropSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var confirming: String?
 
     var body: some View {
@@ -311,7 +311,7 @@ struct DropSheet: View {
 // MARK: - Use
 
 struct UseSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         SheetScaffold(title: "🍽️ Use Item") {
@@ -354,7 +354,7 @@ struct UseSheet: View {
 // MARK: - Save / Load
 
 struct SaveLoadSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingOverwrite: Int?
 
@@ -444,7 +444,7 @@ struct HelpSheet: View {
 // MARK: - Hidden admin / debug panel
 
 struct DebugSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var itemID = ""
     @State private var moneyText = ""
 

@@ -3,7 +3,7 @@ import GameCore
 
 /// "The games available are: 50/50, H/L"
 struct GamesSheet: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @Environment(\.dismiss) private var dismiss
     @State private var pickedGame = 0
 
@@ -41,7 +41,7 @@ struct GamesSheet: View {
 // MARK: - 50/50
 
 struct CoinFlipView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var choice: CoinSide = .heads
     @State private var betText = "10"
     @State private var spinning = false
@@ -89,7 +89,7 @@ struct CoinFlipView: View {
 // MARK: - H/L
 
 struct HigherLowerView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @State private var betText = "10"
     @State private var exactText = ""
     @State private var result: GambleResult?

@@ -4,7 +4,7 @@ import GameCore
 /// A normal room: big room emoji, the doors, and every room-menu action
 /// from the original as buttons.
 struct RoomView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     @Binding var sheet: ActiveSheet?
     @State private var lootBounce = false
 

@@ -4,7 +4,7 @@ import GameCore
 /// The message feed. The newest entry gets the typewriter animation;
 /// older ones are dimmed history.
 struct LogView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
 
     var body: some View {
         ScrollViewReader { proxy in

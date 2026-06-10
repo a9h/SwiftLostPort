@@ -2,7 +2,7 @@ import SwiftUI
 import GameCore
 
 struct GameOverView: View {
-    @Environment(GameState.self) private var game
+    @EnvironmentObject private var game: GameState
     let reason: String
     let money: Int
     @State private var appeared = false
