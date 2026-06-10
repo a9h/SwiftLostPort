@@ -2,8 +2,14 @@ import Foundation
 
 /// Everything needed to restore a run: stats, inventory (which covers the
 /// original's per-category lists, metal/iron counts and tools), armour,
-/// and the current room.
+/// and the current room. New fields added by the update default gracefully
+/// when an older save (lower `version`) is loaded.
 public struct SaveData: Codable, Equatable, Sendable {
+    /// Bumped whenever the save shape changes. v1 = original; v2 = update
+    /// (depth/boss, durability, status effects, room modifier, trader type).
+    public static let currentVersion = 2
+
+    public var version: Int
     public var player: Player
     public var inventoryCounts: [String: Int]
     public var roomName: String
@@ -12,6 +18,51 @@ public struct SaveData: Codable, Equatable, Sendable {
     public var previousEncounter: Bool
     public var roomsVisited: Int
     public var savedAt: Date
+
+    // v2 additions
+    public var depth: Int
+    public var bossPending: Bool
+
+    public init(version: Int = SaveData.currentVersion,
+                player: Player,
+                inventoryCounts: [String: Int],
+                roomName: String,
+                doors: Int,
+                hasLooted: Bool,
+                previousEncounter: Bool,
+                roomsVisited: Int,
+                savedAt: Date,
+                depth: Int,
+                bossPending: Bool) {
+        self.version = version
+        self.player = player
+        self.inventoryCounts = inventoryCounts
+        self.roomName = roomName
+        self.doors = doors
+        self.hasLooted = hasLooted
+        self.previousEncounter = previousEncounter
+        self.roomsVisited = roomsVisited
+        self.savedAt = savedAt
+        self.depth = depth
+        self.bossPending = bossPending
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        player = try c.decode(Player.self, forKey: .player)
+        inventoryCounts = try c.decode([String: Int].self, forKey: .inventoryCounts)
+        roomName = try c.decode(String.self, forKey: .roomName)
+        doors = try c.decode(Int.self, forKey: .doors)
+        hasLooted = try c.decode(Bool.self, forKey: .hasLooted)
+        previousEncounter = try c.decode(Bool.self, forKey: .previousEncounter)
+        roomsVisited = try c.decode(Int.self, forKey: .roomsVisited)
+        savedAt = try c.decode(Date.self, forKey: .savedAt)
+        // v2 fields: default for older saves. Depth falls back to roomsVisited
+        // so an old run keeps a sensible difficulty when resumed.
+        depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? roomsVisited
+        bossPending = try c.decodeIfPresent(Bool.self, forKey: .bossPending) ?? false
+    }
 }
 
 /// Pluggable persistence so GameCore stays testable without touching disk.
@@ -92,7 +143,9 @@ public extension GameState {
             hasLooted: hasLooted,
             previousEncounter: previousEncounter,
             roomsVisited: roomsVisited,
-            savedAt: Date()
+            savedAt: Date(),
+            depth: depth,
+            bossPending: bossPending
         )
         do {
             try saveStore.save(data, slot: slot)
@@ -116,6 +169,8 @@ public extension GameState {
         hasLooted = saved.hasLooted
         previousEncounter = saved.previousEncounter
         roomsVisited = saved.roomsVisited
+        depth = saved.depth
+        bossPending = saved.bossPending
         enemy = nil
         shopStock = nil
         hlRound = nil

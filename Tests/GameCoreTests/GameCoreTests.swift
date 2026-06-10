@@ -77,14 +77,75 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(Difficulty.roll(using: &rng), .hard)
     }
 
+    // MARK: - Depth scaling + bosses (B1)
+
+    func testEnemyHPScalesWithDepth() {
+        // hpMultiplier = 1 + depth*0.04
+        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 0, isBoss: false).maxHP, 100)
+        XCTAssertEqual(Enemy.make(difficulty: .easy, depth: 25, isBoss: false).maxHP, 200) // doubled
+        XCTAssertEqual(Enemy.make(difficulty: .hard, depth: 10, isBoss: false).maxHP, 350) // 250*1.4
+    }
+
+    func testEnemyDamageAndCoinsScaleWithDepth() {
+        let e = Enemy.make(difficulty: .hard, depth: 10, isBoss: false)
+        // damage 50–90 * 1.30 -> 65–117
+        XCTAssertEqual(e.damageRange, 65...117)
+        // coins 100–150 * 1.50 -> 150–225
+        XCTAssertEqual(e.coinRange, 150...225)
+    }
+
+    func testBossStatsAndScaling() {
+        let boss = Enemy.make(difficulty: .hard, depth: 10, isBoss: true)
+        // HP = 250*3 * 1.4 = 1050
+        XCTAssertEqual(boss.maxHP, 1050)
+        // damage 50–90 * 1.30 * 1.25 -> round(81.25)=81 ... round(146.25)=146
+        XCTAssertEqual(boss.damageRange, 81...146)
+        XCTAssertTrue(boss.isBoss)
+    }
+
+    func testBossSpawnsAtDepthMilestones() {
+        // Walk to depth 10 and confirm the next encounter is a boss.
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 9
+        game.bossPending = false
+        // takeDoor -> depth 10 -> bossPending set; force an encounter this room.
+        // generateRoom script: decay 50(no), trader 100(no), encounter 10(<25 yes).
+        game.previousEncounter = false
+        game.rng = ScriptedGameRandom([50, 100, 10])
+        game.takeDoor(1)
+        XCTAssertEqual(game.depth, 10)
+        XCTAssertEqual(game.screen, .encounter)
+        XCTAssertEqual(game.enemy?.isBoss, true)
+        XCTAssertFalse(game.bossPending) // consumed
+    }
+
+    func testTorchCannotScareBoss() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("torch")
+        game.depth = 10
+        game.bossPending = true
+        game.startEncounter()
+        XCTAssertEqual(game.enemy?.isBoss, true)
+        let bossHPBefore = game.enemy?.hp
+        game.beginFight()
+        // Even a "scare" roll of 1 must NOT remove the boss.
+        game.rng = ScriptedGameRandom([1])
+        game.attack(with: "torch")
+        XCTAssertEqual(game.screen, .encounter)
+        XCTAssertNotNil(game.enemy)
+        XCTAssertEqual(game.enemy?.hp, bossHPBefore) // torch deals no damage
+        XCTAssertTrue(game.inventory.has("torch")) // not consumed
+    }
+
     func testCombatRoundDealsWeaponDamageAndArmourReducedCounterhit() {
         // Room first, then: encounter difficulty roll, weapon damage choice,
         // enemy counter-hit raw damage.
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("knife")
         game.player.armour = Armour(head: 30, chest: 30, legs: 30) // raw 90 -> ~36% reduction
+        game.depth = 0 // isolate from depth scaling
 
-        // Force an encounter: difficulty roll 150 -> easy (100 HP) at depth 1.
+        // Force an encounter: difficulty roll 150 -> easy (100 HP).
         game.rng = ScriptedGameRandom([150])
         game.startEncounter()
         XCTAssertEqual(game.enemy?.difficulty, .easy)
@@ -102,6 +163,7 @@ final class GameCoreTests: XCTestCase {
     func testKillingEnemyAwardsCoinsInDifficultyRange() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("longsword")
+        game.depth = 0 // isolate from depth scaling
 
         game.rng = ScriptedGameRandom([150]) // easy, 100 HP
         game.startEncounter()
@@ -117,6 +179,7 @@ final class GameCoreTests: XCTestCase {
 
     func testFightWithNoWeaponsCostsOneArmouredHit() {
         let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0 // isolate from depth scaling
         game.rng = ScriptedGameRandom([150]) // easy
         game.startEncounter()
         game.rng = ScriptedGameRandom([10]) // raw hit 10 -> 8 after the flat-2 component

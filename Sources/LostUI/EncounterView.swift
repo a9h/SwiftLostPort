@@ -14,19 +14,19 @@ struct EncounterView: View {
 
             if let enemy = game.enemy {
                 VStack(spacing: 8) {
-                    Text(enemy.difficulty.emoji)
-                        .font(.system(size: 96))
+                    Text(enemy.emoji)
+                        .font(.system(size: enemy.isBoss ? 112 : 96))
                         .offset(x: shake ? -10 : 0)
                         .animation(.spring(duration: 0.18, bounce: 0.7), value: shake)
-                    Text("The enemy is \(enemy.difficulty.rawValue)")
+                    Text(enemy.isBoss ? "⚠️ BOSS FIGHT ⚠️" : "The enemy is \(enemy.displayName)")
                         .font(.system(.title3, design: .monospaced).bold())
-                        .foregroundStyle(difficultyColor(enemy.difficulty))
+                        .foregroundStyle(enemy.isBoss ? .purple : difficultyColor(enemy.difficulty))
 
                     // Enemy HP bar
                     VStack(spacing: 2) {
-                        StatBar(emoji: "💢", value: max(enemy.hp, 0), max: enemy.difficulty.maxHP,
-                                tint: difficultyColor(enemy.difficulty),
-                                label: "\(max(enemy.hp, 0))/\(enemy.difficulty.maxHP)")
+                        StatBar(emoji: "💢", value: max(enemy.hp, 0), max: enemy.maxHP,
+                                tint: enemy.isBoss ? .purple : difficultyColor(enemy.difficulty),
+                                label: "\(max(enemy.hp, 0))/\(enemy.maxHP)")
                     }
                     .frame(maxWidth: 320)
                 }

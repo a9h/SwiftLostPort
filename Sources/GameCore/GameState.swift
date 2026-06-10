@@ -48,6 +48,12 @@ public final class GameState: ObservableObject {
     /// True right after fleeing/winning a fight; blocks back-to-back
     /// encounters and is consumed by the next room generation.
     @Published var previousEncounter = false
+    /// Rooms entered this run — drives enemy scaling (B1). Equal to
+    /// `roomsVisited` but kept distinct as the scaling/boss authority.
+    @Published public internal(set) var depth = 0
+    /// Armed when depth crosses a boss milestone; the next enemy
+    /// encounter is forced to be a boss and the flag is consumed.
+    @Published var bossPending = false
 
     // Current encounter
     @Published public internal(set) var enemy: Enemy?
@@ -86,6 +92,8 @@ public final class GameState: ObservableObject {
         shopStock = nil
         hlRound = nil
         previousEncounter = false
+        depth = 0
+        bossPending = false
         roomsVisited = 0
         log = []
         say("Welcome to LOST. Find your way out... or don't.", .narration)
@@ -108,6 +116,9 @@ public final class GameState: ObservableObject {
         shopStock = nil
         hlRound = nil
         roomsVisited += 1
+        depth += 1
+        // Crossing a boss milestone arms the next enemy encounter as a boss.
+        if depth % Balance.Depth.bossInterval == 0 { bossPending = true }
 
         // Hunger/thirst decay: 50% chance to lose 1–10 of each.
         if rng.int(in: 1...100) > 50 {

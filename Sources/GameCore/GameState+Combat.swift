@@ -8,19 +8,27 @@ public extension GameState {
     }
 
     internal func startEncounter() {
-        // Difficulty is rolled once on first sight and persists.
-        let difficulty = Difficulty.roll(using: &rng)
-        enemy = Enemy(difficulty: difficulty)
+        // A pending boss overrides the normal difficulty roll and is consumed.
+        let isBoss = bossPending
+        bossPending = false
+        let difficulty = isBoss ? .hard : Difficulty.roll(using: &rng)
+        let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: isBoss)
+        enemy = newEnemy
         encounterPhase = .choosing
         screen = .encounter
-        say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
-        say("The enemy is \(difficulty.rawValue) with \(difficulty.maxHP) health \(difficulty.emoji)", .combat)
+        if isBoss {
+            say("A BOSS blocks your path! \(newEnemy.emoji) You can RUN, FIGHT or USE an item.", .narration)
+            say("The boss has \(newEnemy.maxHP) health — this won't be easy.", .combat)
+        } else {
+            say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
+            say("The enemy is \(newEnemy.displayName) with \(newEnemy.maxHP) health \(newEnemy.emoji)", .combat)
+        }
     }
 
     /// One armour-reduced enemy hit. Returns the damage dealt to the player.
-    private func enemyHitsPlayer() -> Int {
+    func enemyHitsPlayer() -> Int {
         guard let enemy else { return 0 }
-        let raw = rng.int(in: enemy.difficulty.damageRange)
+        let raw = rng.int(in: enemy.damageRange)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
         return damage
@@ -75,17 +83,20 @@ public extension GameState {
         }
 
         if weaponID == "torch" {
-            // Special: 25% chance to scare the enemy off (consumes the torch);
-            // otherwise nothing happens and the enemy gets its hit in.
-            if rng.int(in: 1...100) < 25 {
+            // Special: 25% chance to scare a normal enemy off (consumes the
+            // torch). Bosses are immune — the scare roll is skipped entirely.
+            if enemy?.isBoss == true {
+                say("The torch flickers, but the boss is unbothered.", .combat)
+            } else if rng.int(in: 1...100) < 25 {
                 inventory.remove("torch")
                 say("You waved your torch and scared the enemy off! 🔥", .reward)
                 enemy = nil
                 previousEncounter = true
                 generateRoom()
                 return
+            } else {
+                say("The enemy did not care about your torch", .combat)
             }
-            say("The enemy did not care about your torch", .combat)
         } else if let damages = data.weapons[weaponID], !damages.isEmpty {
             let damage = rng.choice(damages)
             enemy?.hp -= damage
@@ -93,9 +104,15 @@ public extension GameState {
         }
 
         if let enemy, enemy.hp <= 0 {
-            let coins = rng.int(in: enemy.difficulty.coinRange)
+            let coins = rng.int(in: enemy.coinRange)
             player.money += coins
-            say("You killed the enemy and ran to another room, and looted £\(coins) 💷", .reward)
+            if enemy.isBoss {
+                let loot = rng.choice(Balance.Depth.bossLootPool)
+                inventory.add(loot)
+                say("You felled the boss! It dropped \(ItemCatalog.label(loot)) and £\(coins) 💷", .reward)
+            } else {
+                say("You killed the enemy and ran to another room, and looted £\(coins) 💷", .reward)
+            }
             self.enemy = nil
             previousEncounter = true
             generateRoom()
