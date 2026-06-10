@@ -3,10 +3,10 @@ import GameCore
 
 /// The app's single entry view: switches on `GameState.screen`.
 public struct LostRootView: View {
-    @State private var game: GameState
+    @StateObject private var game: GameState
 
     public init(game: GameState = GameState()) {
-        _game = State(initialValue: game)
+        _game = StateObject(wrappedValue: game)
     }
 
     public var body: some View {
