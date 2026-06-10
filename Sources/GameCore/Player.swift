@@ -1,7 +1,9 @@
 import Foundation
 
-/// Three armour slots; `total` is the percentage damage reduction:
-/// round((head + chest + legs) / 3).
+/// Three armour slots. Damage reduction uses a diminishing-returns soft cap
+/// (see `Balance.Armour`): each point of armour is worth less than the last,
+/// the reduction asymptotically approaches an 85% ceiling it never reaches,
+/// and a small flat component makes the first piece feel useful.
 public struct Armour: Codable, Equatable, Sendable {
     public var head: Int = 0
     public var chest: Int = 0
@@ -13,13 +15,27 @@ public struct Armour: Codable, Equatable, Sendable {
         self.legs = legs
     }
 
-    public var total: Int {
-        Int((Double(head + chest + legs) / 3.0).rounded())
+    /// Sum of the three slots (NOT averaged) — feeds the reduction curve.
+    public var rawArmour: Int { head + chest + legs }
+
+    /// The diminishing-returns reduction fraction (0..<ceiling). Monotonic in
+    /// `rawArmour`; approaches `Balance.Armour.ceiling` but never reaches it.
+    public var reductionFraction: Double {
+        Balance.Armour.ceiling * (Double(rawArmour) / (Double(rawArmour) + Balance.Armour.scale))
     }
 
-    /// finalDamage = round(raw - raw * total / 100)
+    /// Whole-percent reduction for display, e.g. "~28%".
+    public var reductionPercent: Int {
+        Int((reductionFraction * 100).rounded())
+    }
+
+    /// The single damage-reduction function every hit routes through.
+    /// Applies the flat component first, then the percentage, and clamps so a
+    /// hit can never fall below 1, go negative, or heal the player.
     public func reducedDamage(_ raw: Int) -> Int {
-        Int((Double(raw) - Double(raw) * Double(total) / 100.0).rounded())
+        let afterFlat = max(0, raw - Balance.Armour.flat)
+        let reduced = Double(afterFlat) * (1.0 - reductionFraction)
+        return max(1, Int(reduced.rounded()))
     }
 }
 

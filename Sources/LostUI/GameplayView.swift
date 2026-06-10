@@ -92,7 +92,7 @@ struct HUDView: View {
                         label: "\(game.player.hunger)")
                 StatBar(emoji: "🚰", value: game.player.thirst, max: 100, tint: .blue,
                         label: "\(game.player.thirst)")
-                Text("🛡️\(game.player.armour.total)%")
+                Text("🛡️\(game.player.armour.reductionPercent)%")
                     .font(.caption.monospaced())
                     .help("Armour damage reduction")
             }

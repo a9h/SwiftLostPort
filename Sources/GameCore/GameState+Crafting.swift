@@ -69,15 +69,15 @@ public extension GameState {
         if let value = data.stats.armourHead[armourID] {
             player.armour.head += value
             inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — head armour is now \(player.armour.head). Damage reduction: \(player.armour.total)%.", .reward)
+            say("You equipped the \(ItemCatalog.label(armourID)) — head armour is now \(player.armour.head). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
         } else if let value = data.stats.armourChest[armourID] {
             player.armour.chest += value
             inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — chest armour is now \(player.armour.chest). Damage reduction: \(player.armour.total)%.", .reward)
+            say("You equipped the \(ItemCatalog.label(armourID)) — chest armour is now \(player.armour.chest). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
         } else if let value = data.stats.armourFeet[armourID] {
             player.armour.legs += value
             inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — leg armour is now \(player.armour.legs). Damage reduction: \(player.armour.total)%.", .reward)
+            say("You equipped the \(ItemCatalog.label(armourID)) — leg armour is now \(player.armour.legs). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
         } else {
             say("You can't equip that.", .info)
         }

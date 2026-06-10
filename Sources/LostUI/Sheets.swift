@@ -127,9 +127,12 @@ struct ArmourSheet: View {
                 armourLine("🦺", "Chest", game.player.armour.chest)
                 armourLine("👢", "Legs", game.player.armour.legs)
                 Divider()
-                Text("Armour will reduce damage by \(game.player.armour.total)%")
+                Text("Your armour reduces incoming damage by ~\(game.player.armour.reductionPercent)%")
                     .font(.callout.monospaced().bold())
                     .foregroundStyle(.green)
+                Text("(diminishing returns — approaches but never reaches 85%)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
             }
             .padding(14)
             .overlay(
@@ -255,7 +258,7 @@ struct EquipSheet: View {
                         }
                     }
                 }
-                Text("Damage reduction now: \(game.player.armour.total)%")
+                Text("Damage reduction now: \(game.player.armour.reductionPercent)%")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }

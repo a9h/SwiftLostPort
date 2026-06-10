@@ -22,19 +22,49 @@ final class GameCoreTests: XCTestCase {
         return game
     }
 
-    // MARK: - Armour / combat damage
+    // MARK: - Armour / combat damage (A1: diminishing-returns soft cap)
 
-    func testArmourTotalIsRoundedAverage() {
-        let armour = Armour(head: 20, chest: 25, legs: 15)
-        XCTAssertEqual(armour.total, 20) // round(60/3)
-        XCTAssertEqual(Armour(head: 20, chest: 0, legs: 0).total, 7) // round(20/3) = 6.67 -> 7
+    func testArmourReductionCurveHitsExpectedPoints() {
+        // pct = 0.85 * raw / (raw + 120)
+        XCTAssertEqual(Armour(head: 20, chest: 0, legs: 0).reductionPercent, 12)   // ~12%
+        XCTAssertEqual(Armour(head: 20, chest: 25, legs: 15).reductionPercent, 28) // raw 60 -> ~28%
+        XCTAssertEqual(Armour(head: 80, chest: 80, legs: 80).reductionPercent, 57) // raw 240 -> ~57%
     }
 
-    func testArmourReducesDamageByPercentage() {
-        let armour = Armour(head: 20, chest: 25, legs: 15) // total 20%
-        XCTAssertEqual(armour.reducedDamage(50), 40) // 50 - 50*0.2
-        XCTAssertEqual(armour.reducedDamage(90), 72)
-        XCTAssertEqual(Armour().reducedDamage(37), 37) // no armour, no reduction
+    func testArmourReductionNeverReaches85Percent() {
+        // Even at absurd armour totals the fraction stays strictly below the ceiling.
+        for raw in [0, 100, 1_000, 100_000] {
+            let armour = Armour(head: raw, chest: 0, legs: 0)
+            XCTAssertLessThan(armour.reductionFraction, Balance.Armour.ceiling)
+        }
+    }
+
+    func testArmourIsMonotonicAndNeverInvertsOrHeals() {
+        var lastReduction = -1.0
+        var lastDamage = Int.max
+        for raw in stride(from: 0, through: 600, by: 20) {
+            let armour = Armour(head: raw, chest: 0, legs: 0)
+            // More armour never reduces less (monotonic) and never exceeds ceiling.
+            XCTAssertGreaterThanOrEqual(armour.reductionFraction, lastReduction)
+            lastReduction = armour.reductionFraction
+            // A 100-damage hit is always >= 1, never negative, never increasing health,
+            // and never more than the raw damage.
+            let final = armour.reducedDamage(100)
+            XCTAssertGreaterThanOrEqual(final, 1)
+            XCTAssertLessThanOrEqual(final, 100)
+            XCTAssertLessThanOrEqual(final, lastDamage) // more armour -> less or equal damage
+            lastDamage = final
+        }
+    }
+
+    func testArmourFlatComponentAndFloor() {
+        // No armour: only the flat 2 is removed.
+        XCTAssertEqual(Armour().reducedDamage(10), 8)
+        // Tiny hits never drop below 1 even after the flat reduction.
+        XCTAssertEqual(Armour().reducedDamage(2), 1)
+        XCTAssertEqual(Armour().reducedDamage(1), 1)
+        // raw 60 armour (28%) on a 50 hit: afterFlat 48 * (1-0.2833) = ~34.
+        XCTAssertEqual(Armour(head: 20, chest: 25, legs: 15).reducedDamage(50), 34)
     }
 
     func testEnemyDifficultyRollBrackets() {
@@ -52,20 +82,21 @@ final class GameCoreTests: XCTestCase {
         // enemy counter-hit raw damage.
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("knife")
-        game.player.armour = Armour(head: 30, chest: 30, legs: 30) // 30% reduction
+        game.player.armour = Armour(head: 30, chest: 30, legs: 30) // raw 90 -> ~36% reduction
 
-        // Force an encounter: difficulty roll 150 -> easy (100 HP)
+        // Force an encounter: difficulty roll 150 -> easy (100 HP) at depth 1.
         game.rng = ScriptedGameRandom([150])
         game.startEncounter()
         XCTAssertEqual(game.enemy?.difficulty, .easy)
         XCTAssertEqual(game.enemy?.hp, 100)
 
-        // Attack: knife damage index 5 -> damages[5] = 45; counter-hit raw 20 -> 14 after 30%.
+        // Attack: knife damage index 5 -> damages[5] = 45; counter-hit raw 20.
+        // afterFlat 18 * (1 - 0.85*90/210) = 18 * 0.6357 = ~11.
         game.rng = ScriptedGameRandom([5, 20])
         game.beginFight()
         game.attack(with: "knife")
         XCTAssertEqual(game.enemy?.hp, 100 - 45)
-        XCTAssertEqual(game.player.currentHealth, 100 - 14)
+        XCTAssertEqual(game.player.currentHealth, 100 - 11)
     }
 
     func testKillingEnemyAwardsCoinsInDifficultyRange() {
@@ -88,9 +119,9 @@ final class GameCoreTests: XCTestCase {
         let game = startInRoom(doors: 1, thenScript: [])
         game.rng = ScriptedGameRandom([150]) // easy
         game.startEncounter()
-        game.rng = ScriptedGameRandom([10]) // raw hit 10
+        game.rng = ScriptedGameRandom([10]) // raw hit 10 -> 8 after the flat-2 component
         game.beginFight()
-        XCTAssertEqual(game.player.currentHealth, 90)
+        XCTAssertEqual(game.player.currentHealth, 92)
         XCTAssertEqual(game.encounterPhase, .choosing) // fight ended
     }
 
@@ -249,7 +280,8 @@ final class GameCoreTests: XCTestCase {
         game.equip("scrapBoots")
         XCTAssertEqual(game.player.armour.head, 20)
         XCTAssertEqual(game.player.armour.legs, 15)
-        XCTAssertEqual(game.player.armour.total, 12) // round(35/3)
+        XCTAssertEqual(game.player.armour.rawArmour, 35)
+        XCTAssertEqual(game.player.armour.reductionPercent, 19) // 0.85*35/155 -> ~19%
         XCTAssertTrue(game.inventory.isEmpty)
     }
 
