@@ -85,6 +85,8 @@ public enum Balance {
         public static let trapChance = 12
         public static let darkChance = 12
         public static let floodedChance = 10
+        /// Extra dark-modifier width for the Tunnel room (12 + 38 = ~50% dark).
+        public static let tunnelDarkBonus = 38
 
         /// Trap damage (depth-scaled, armour-reduced).
         public static let trapDamageRange = 10...25

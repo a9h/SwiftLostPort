@@ -75,7 +75,7 @@ struct HUDView: View {
                     .onLongPressGesture(minimumDuration: 1.2) { onTitleHold() }
                 Spacer()
                 if case .room = game.screen {
-                    Text("\(RoomStyle.emoji(for: game.roomName)) \(game.roomName)  \(doorIcons)")
+                    Text("\(RoomStyle.emoji(for: game.roomName)) \(RoomStyle.displayName(for: game.roomName))  \(doorIcons)")
                         .font(.callout.monospaced())
                 }
                 Spacer()
@@ -146,7 +146,21 @@ enum RoomStyle {
         case "Bathroom": return "🛁"
         case "Basement": return "🪜"
         case "Garden": return "🌳"
+        case "Scrapyard": return "🏗️"
+        case "Street": return "🛣️"
+        case "Tunnel": return "🚇"
+        case "Workshop": return "🔧"
+        case "AbandonedShop": return "🏚️"
+        case "Garage": return "🚗"
         default: return "🚪"
+        }
+    }
+
+    /// Spaces out camel-cased room ids for display (e.g. "Abandoned Shop").
+    static func displayName(for room: String) -> String {
+        switch room {
+        case "AbandonedShop": return "Abandoned Shop"
+        default: return room
         }
     }
 }

@@ -13,8 +13,9 @@ final class GameCoreTests: XCTestCase {
     /// decay-roll(no decay), traderRarity(no), encounterChance(no),
     /// room(choice 4 = Kitchen, rooms sorted), doors, modifier-roll(100 = none).
     private func startInRoom(doors: Int, thenScript rest: [Int]) -> GameState {
-        // Room names sorted: Basement, Bathroom, Bedroom, Garden, Kitchen -> index 4 = Kitchen
-        let prefix = [50, 100, 100, 4, doors, 100]
+        // Pick Kitchen by its index in the sorted room list (robust to new rooms).
+        let kitchenIndex = GameData.load().roomNames.firstIndex(of: "Kitchen")!
+        let prefix = [50, 100, 100, kitchenIndex, doors, 100]
         let game = makeGame(script: prefix + rest)
         game.startNewGame()
         XCTAssertEqual(game.screen, .room)
@@ -330,6 +331,36 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(RoomModifier.roll(34), .flooded)
         XCTAssertEqual(RoomModifier.roll(35), .none)
         XCTAssertEqual(RoomModifier.roll(100), .none)
+    }
+
+    func testTunnelDarkBiasWidensDarkBand() {
+        // With the Tunnel bonus, values that would be flooded/none become dark.
+        let bonus = Balance.RoomModifiers.tunnelDarkBonus
+        XCTAssertEqual(RoomModifier.roll(40, darkBonus: bonus), .dark) // 40 <= 12+12+38
+        XCTAssertEqual(RoomModifier.roll(50, darkBonus: bonus), .dark)
+        // Trap chance is unchanged by the bonus.
+        XCTAssertEqual(RoomModifier.roll(12, darkBonus: bonus), .trap)
+        // Without the bonus, 40 is a normal room.
+        XCTAssertEqual(RoomModifier.roll(40), .none)
+    }
+
+    // MARK: - Loot door luck (rebalance 2d: verify, not rewrite)
+
+    func testLootDoorLuckRangesAndThreshold() {
+        // Confirmed: success when lucky < 33, and fewer doors = a wider (less
+        // lucky) range. Here we verify the shared <33 threshold per door count
+        // by scripting the boundary value and a known item/no-money roll.
+        for doors in 1...3 {
+            // lucky 32 -> success, item index 0, key 75 -> no money, flavour 0.
+            let win = startInRoom(doors: doors, thenScript: [32, 0, 75, 0])
+            win.loot()
+            XCTAssertEqual(win.inventory.totalItemCount, 1, "doors \(doors): 32 should succeed")
+
+            // lucky 33 -> failure, nothing gained.
+            let lose = startInRoom(doors: doors, thenScript: [33])
+            lose.loot()
+            XCTAssertTrue(lose.inventory.isEmpty, "doors \(doors): 33 should fail")
+        }
     }
 
     func testTrapRoomDealsArmourReducedDamageOnEntry() {

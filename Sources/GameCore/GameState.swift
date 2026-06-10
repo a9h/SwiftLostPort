@@ -157,7 +157,9 @@ public final class GameState: ObservableObject {
             roomName = rng.choice(data.roomNames)
             doors = rng.int(in: 1...3)
             hasLooted = false
-            roomModifier = RoomModifier.roll(rng.int(in: 1...100))
+            // The Tunnel trends dark; other rooms use the standard roll.
+            let darkBonus = roomName == "Tunnel" ? Balance.RoomModifiers.tunnelDarkBonus : 0
+            roomModifier = RoomModifier.roll(rng.int(in: 1...100), darkBonus: darkBonus)
             screen = .room
             say("You find yourself in a \(roomName) with \(doors) door\(doors == 1 ? "" : "s")", .narration)
             applyRoomEntryEffects()

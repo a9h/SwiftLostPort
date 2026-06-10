@@ -17,7 +17,7 @@ struct RoomView: View {
                     .font(.system(size: 84))
                     .scaleEffect(lootBounce ? 1.12 : 1)
                     .animation(.bouncy(duration: 0.35), value: lootBounce)
-                Text(game.roomName)
+                Text(RoomStyle.displayName(for: game.roomName))
                     .font(.system(.title2, design: .monospaced).bold())
                 Text(game.hasLooted ? "Picked clean." : "Looks like there could be something here...")
                     .font(.footnote.monospaced())

@@ -24,9 +24,11 @@ public enum RoomModifier: String, Codable, Sendable {
     }
 
     /// Rolls a modifier from a 1...100 value using the Balance thresholds.
-    public static func roll(_ value: Int) -> RoomModifier {
+    /// `darkBonus` widens the dark band (the Tunnel room passes a bonus so it
+    /// trends dark); it doesn't change the trap chance.
+    public static func roll(_ value: Int, darkBonus: Int = 0) -> RoomModifier {
         let trap = Balance.RoomModifiers.trapChance
-        let dark = trap + Balance.RoomModifiers.darkChance
+        let dark = trap + Balance.RoomModifiers.darkChance + darkBonus
         let flooded = dark + Balance.RoomModifiers.floodedChance
         if value <= trap { return .trap }
         if value <= dark { return .dark }
