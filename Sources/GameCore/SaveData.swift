@@ -9,8 +9,10 @@ public struct SaveData: Codable, Equatable, Sendable {
     /// (depth, durability, status effects, room modifier); v3 = boss sequence
     /// (nextBossDepth/bossSequenceIndex/maxDamageFlag) + 1:2 ratio; v4 = armour
     /// rework (one piece per slot with material tiers — old summed-int slots
-    /// migrate to the nearest tier, handled in `Armour`'s Codable).
-    public static let currentVersion = 4
+    /// migrate to the nearest tier, handled in `Armour`'s Codable); v5 = armour
+    /// per-slot durability (absent on older saves → occupied slots load full)
+    /// and the rope material (a normal inventory count, defaults to 0).
+    public static let currentVersion = 5
 
     public var version: Int
     public var player: Player

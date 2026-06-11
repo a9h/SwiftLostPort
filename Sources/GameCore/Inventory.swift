@@ -180,6 +180,27 @@ public struct Inventory: Codable, Equatable, Sendable {
         return weapons[idx].maxDurability
     }
 
+    /// True if the active (most-worn) instance is durability-tracked and below
+    /// its max — i.e. it can be repaired (Part 4).
+    public func weaponNeedsRepair(_ itemID: String) -> Bool {
+        guard let idx = activeWeaponIndex(of: itemID),
+              let max = weapons[idx].maxDurability,
+              let current = weapons[idx].durability else { return false }
+        return current < max
+    }
+
+    /// Repairs the active (most-worn) instance by `amount`, capped at its max,
+    /// preserving its upgrade level. Returns false if nothing to repair.
+    @discardableResult
+    public mutating func repairWeapon(_ itemID: String, amount: Int) -> Bool {
+        guard let idx = activeWeaponIndex(of: itemID),
+              let max = weapons[idx].maxDurability,
+              let current = weapons[idx].durability,
+              current < max else { return false }
+        weapons[idx].durability = Swift.min(max, current + amount)
+        return true
+    }
+
     /// Hardened Blade (Part 5): boosts the active instance's max durability by
     /// `multiplier`, crediting the same delta to its current durability so the
     /// boost is felt immediately. Returns false if the active instance isn't

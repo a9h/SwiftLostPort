@@ -1,10 +1,10 @@
 {
-  "scrapHelmet": { "scrapmetal": 5 },
-  "scrapChestplate": { "scrapmetal": 8 },
-  "scrapBoots": { "scrapmetal": 3 },
-  "iron": { "scrapmetal": 5 },
-  "ironBar": { "iron": 3, "scrapmetal": 2 },
+  "rope": { "branch": 1 },
+  "leatherCap": { "rope": 4 },
+  "leatherVest": { "rope": 6 },
+  "leatherBoots": { "rope": 3 },
+  "torch": { "branch": 1, "rope": 1 },
   "bandage": { "scrapmetal": 2, "waterbottle": 1 },
   "medkit": { "bandage": 2, "medicine": 1 },
-  "torch": { "branch": 1, "scrapmetal": 1 }
+  "ironBar": { "iron": 3, "scrapmetal": 2 }
 }

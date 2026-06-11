@@ -60,6 +60,7 @@ public enum ItemCatalog {
         add("scrapmetal", .crafting, "🔩", "Scrap Metal")
         add("iron", .crafting, "⛓️", "Iron")
         add("ironBar", .crafting, "🧱", "Iron Bar")
+        add("rope", .crafting, "🪢", "Rope")
         // Consumables (food & drink)
         add("tomato", .consumable, "🍅", "Tomato")
         add("cannedfood", .consumable, "🥫", "Canned Food")

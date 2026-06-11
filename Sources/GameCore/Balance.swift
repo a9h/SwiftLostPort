@@ -66,6 +66,59 @@ public enum Balance {
         public static let floodReduction: [ArmourMaterial: Double] = [
             .leather: 0.5, .scrap: 0.75, .iron: 1.0, .steel: 1.0,
         ]
+
+        // MARK: Durability pools (Part 2a)
+
+        /// Total damage-absorption a piece has before it breaks, per slot/tier.
+        /// A freshly crafted or upgraded piece starts at this full value.
+        public static let durabilityPool: [ArmourSlot: [ArmourMaterial: Int]] = [
+            .head:  [.leather: 25, .scrap: 35, .iron: 55, .steel: 75],
+            .chest: [.leather: 35, .scrap: 55, .iron: 75, .steel: 100],
+            .legs:  [.leather: 28, .scrap: 42, .iron: 62, .steel: 85],
+        ]
+
+        public static func durability(_ material: ArmourMaterial, slot: ArmourSlot) -> Int {
+            durabilityPool[slot]?[material] ?? 0
+        }
+
+        // MARK: Break drops (Part 2c) — a broken piece falls apart into these.
+
+        public static let breakDrop: [ArmourMaterial: [String: Int]] = [
+            .leather: ["rope": 1],
+            .scrap:   ["scrapmetal": 2],
+            .iron:    ["scrapmetal": 2, "iron": 1],
+            .steel:   ["scrapmetal": 3, "ironBar": 1],
+        ]
+
+        // MARK: Repair (Part 2d) — diminishing returns, all tiers.
+
+        /// Scaling factor: at zero durability a repair restores up to 60% of max.
+        public static let repairBase = 0.6
+        /// Floor: a repair always restores at least 10% of max (rounded up).
+        public static let repairFloor = 0.10
+
+        /// How much a single repair restores, given current/max durability.
+        /// The lower the current durability, the more is restored.
+        public static func repairAmount(maxDurability: Int, currentDurability: Int) -> Int {
+            let floor = Int((Double(maxDurability) * repairFloor).rounded(.up))
+            let scaled = Int((Double(maxDurability) * repairBase
+                              * (1.0 - Double(currentDurability) / Double(maxDurability))).rounded())
+            return Swift.max(floor, scaled)
+        }
+
+        /// Repair material cost per slot/tier (fixed regardless of amount
+        /// restored). Chest costs 1 more than head/legs; the material escalates
+        /// with tier: rope → scrapmetal → iron → ironBar.
+        public static func repairCost(_ slot: ArmourSlot, _ material: ArmourMaterial) -> (ingredient: String, count: Int) {
+            let ingredient: String
+            switch material {
+            case .leather: ingredient = "rope"
+            case .scrap:   ingredient = "scrapmetal"
+            case .iron:    ingredient = "iron"
+            case .steel:   ingredient = "ironBar"
+            }
+            return (ingredient, slot == .chest ? 3 : 2)
+        }
     }
 
     // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
@@ -274,5 +327,39 @@ public enum Balance {
         public static let upgradeDamageBonus = 5
 
         public static func cap(for weaponID: String) -> Int { upgradeCaps[weaponID] ?? 0 }
+    }
+
+    // MARK: - Crafting yields (Part 1: rope chain)
+
+    public enum Crafting {
+        /// Rope crafted per branch (the recipe's single output is multiplied by
+        /// this). All other recipes output 1.
+        public static let ropePerBranch = 3
+
+        /// Number of items a recipe produces (default 1).
+        public static func outputCount(for recipeID: String) -> Int {
+            recipeID == "rope" ? ropePerBranch : 1
+        }
+    }
+
+    // MARK: - Weapon repair (Part 4)
+
+    public enum WeaponRepair {
+        public struct Cost: Sendable {
+            public let ingredient: String
+            public let count: Int
+            public let restore: Int
+        }
+        /// Per-weapon repair: material cost and durability restored per repair.
+        public static let costs: [String: Cost] = [
+            "branch":    Cost(ingredient: "rope",       count: 1, restore: 8),
+            "fork":      Cost(ingredient: "rope",       count: 2, restore: 8),
+            "bat":       Cost(ingredient: "scrapmetal", count: 2, restore: 10),
+            "knife":     Cost(ingredient: "scrapmetal", count: 2, restore: 10),
+            "shovel":    Cost(ingredient: "scrapmetal", count: 3, restore: 10),
+            "crowbar":   Cost(ingredient: "scrapmetal", count: 3, restore: 12),
+            "sword":     Cost(ingredient: "iron",       count: 3, restore: 15),
+            "longsword": Cost(ingredient: "iron",       count: 4, restore: 15),
+        ]
     }
 }

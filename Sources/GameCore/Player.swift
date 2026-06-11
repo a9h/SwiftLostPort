@@ -13,10 +13,21 @@ public struct Armour: Equatable, Sendable {
     public var chest: ArmourMaterial?
     public var legs: ArmourMaterial?
 
-    public init(head: ArmourMaterial? = nil, chest: ArmourMaterial? = nil, legs: ArmourMaterial? = nil) {
+    /// Per-slot remaining durability (Part 2). `nil` means "full" — either the
+    /// slot is empty, or it was set before durability tracking (old save / a
+    /// direct test assignment), in which case it reads as the tier's full pool.
+    public var headDurability: Int?
+    public var chestDurability: Int?
+    public var legsDurability: Int?
+
+    public init(head: ArmourMaterial? = nil, chest: ArmourMaterial? = nil, legs: ArmourMaterial? = nil,
+                headDurability: Int? = nil, chestDurability: Int? = nil, legsDurability: Int? = nil) {
         self.head = head
         self.chest = chest
         self.legs = legs
+        self.headDurability = headDurability
+        self.chestDurability = chestDurability
+        self.legsDurability = legsDurability
     }
 
     /// The material equipped in a slot (nil if empty).
@@ -28,13 +39,64 @@ public struct Armour: Equatable, Sendable {
         }
     }
 
-    /// Sets (or clears) a slot's material.
+    /// Sets (or clears) a slot's material. Clearing also clears its durability.
     public mutating func setMaterial(_ material: ArmourMaterial?, in slot: ArmourSlot) {
         switch slot {
         case .head: head = material
         case .chest: chest = material
         case .legs: legs = material
         }
+        if material == nil { setStoredDurability(nil, in: slot) }
+    }
+
+    // MARK: - Per-slot durability (Part 2)
+
+    /// Full durability pool for the slot's current tier (nil if empty).
+    public func maxDurability(in slot: ArmourSlot) -> Int? {
+        guard let material = material(in: slot) else { return nil }
+        return Balance.Armour.durability(material, slot: slot)
+    }
+
+    /// The raw stored value (nil = unset/"full" or empty).
+    public func storedDurability(in slot: ArmourSlot) -> Int? {
+        switch slot {
+        case .head: return headDurability
+        case .chest: return chestDurability
+        case .legs: return legsDurability
+        }
+    }
+
+    public mutating func setStoredDurability(_ value: Int?, in slot: ArmourSlot) {
+        switch slot {
+        case .head: headDurability = value
+        case .chest: chestDurability = value
+        case .legs: legsDurability = value
+        }
+    }
+
+    /// Current durability for an occupied slot — the stored value, or the full
+    /// pool when unset (old saves / direct assignment default to full). nil for
+    /// an empty slot.
+    public func currentDurability(in slot: ArmourSlot) -> Int? {
+        guard let max = maxDurability(in: slot) else { return nil }
+        return storedDurability(in: slot) ?? max
+    }
+
+    /// Sets a slot to full durability for its current tier (on equip/upgrade).
+    public mutating func refillDurability(in slot: ArmourSlot) {
+        setStoredDurability(maxDurability(in: slot), in: slot)
+    }
+
+    /// "(28/35)" for an occupied slot, nil if empty.
+    public func durabilityText(in slot: ArmourSlot) -> String? {
+        guard let cur = currentDurability(in: slot), let max = maxDurability(in: slot) else { return nil }
+        return "\(cur)/\(max)"
+    }
+
+    /// True if the slot is occupied and below full durability.
+    public func needsRepair(in slot: ArmourSlot) -> Bool {
+        guard let cur = currentDurability(in: slot), let max = maxDurability(in: slot) else { return false }
+        return cur < max
     }
 
     /// Base reduction value contributed by a slot's equipped tier (0 if empty).
@@ -96,13 +158,21 @@ public struct Armour: Equatable, Sendable {
 // MARK: - Codable + old-save migration (Part 3d)
 
 extension Armour: Codable {
-    enum CodingKeys: String, CodingKey { case head, chest, legs }
+    enum CodingKeys: String, CodingKey {
+        case head, chest, legs
+        case headDurability, chestDurability, legsDurability
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         head = Self.decodeSlot(c, .head, slot: .head)
         chest = Self.decodeSlot(c, .chest, slot: .chest)
         legs = Self.decodeSlot(c, .legs, slot: .legs)
+        // Durability is absent on pre-v5 saves; nil reads as full via
+        // currentDurability(in:), so old equipped pieces load at full.
+        headDurability = try c.decodeIfPresent(Int.self, forKey: .headDurability)
+        chestDurability = try c.decodeIfPresent(Int.self, forKey: .chestDurability)
+        legsDurability = try c.decodeIfPresent(Int.self, forKey: .legsDurability)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -110,6 +180,9 @@ extension Armour: Codable {
         try c.encodeIfPresent(head, forKey: .head)
         try c.encodeIfPresent(chest, forKey: .chest)
         try c.encodeIfPresent(legs, forKey: .legs)
+        try c.encodeIfPresent(headDurability, forKey: .headDurability)
+        try c.encodeIfPresent(chestDurability, forKey: .chestDurability)
+        try c.encodeIfPresent(legsDurability, forKey: .legsDurability)
     }
 
     /// Decodes a slot from either the new material-tier format or an old
