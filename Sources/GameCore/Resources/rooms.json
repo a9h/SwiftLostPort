@@ -4,11 +4,11 @@
   "Bathroom": ["medicine", "waterbottle", "bandage", "bandage", "bandage", "bandage", "medkit", "medkit"],
   "Basement": ["crowbar", "torch", "waterbottle", "scrapmetal", "scrapmetal"],
   "Garden": ["branch", "shovel", "mushroom", "mushroom", "scrapmetal"],
-  "Scrapyard": ["scrapmetal", "scrapmetal", "scrapmetal", "scrapmetal", "iron", "crowbar", "shovel", "torch"],
-  "Street": ["waterbottle", "cannedfood", "chocolate", "branch", "branch", "knife", "scrapmetal"],
-  "Tunnel": ["torch", "scrapmetal", "scrapmetal", "bandage", "crowbar", "iron"],
+  "Scrapyard": ["scrapmetal", "scrapmetal", "scrapmetal", "scrapmetal", "iron", "crowbar", "shovel", "torch", "shovel", "crowbar", "crowbar", "torch"],
+  "Street": ["waterbottle", "cannedfood", "chocolate", "branch", "branch", "knife", "scrapmetal", "bat", "branch"],
+  "Tunnel": ["torch", "scrapmetal", "scrapmetal", "bandage", "crowbar", "iron", "knife"],
   "Workshop": ["iron", "iron", "scrapmetal", "scrapmetal", "grindstone", "shovel", "crowbar", "bandage", "medkit"],
-  "AbandonedShop": ["cannedfood", "cannedfood", "chocolate", "waterbottle", "medicine", "bandage", "bandage", "pills", "medkit"],
+  "AbandonedShop": ["cannedfood", "cannedfood", "chocolate", "waterbottle", "medicine", "bandage", "bandage", "pills", "medkit", "torch", "crowbar", "shovel"],
   "Pharmacy": ["bandage", "bandage", "medkit", "medicine", "pills", "medkit", "waterbottle"],
-  "Garage": ["scrapmetal", "scrapmetal", "iron", "crowbar", "bat", "torch"]
+  "Garage": ["scrapmetal", "scrapmetal", "iron", "crowbar", "bat", "torch", "torch", "torch", "shovel", "crowbar"]
 }
