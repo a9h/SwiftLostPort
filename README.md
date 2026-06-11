@@ -17,10 +17,10 @@ Targets **iOS 17+** and **macOS 14+**.
 | Target | What it is |
 |---|---|
 | `GameCore` | Pure game logic — no UI, no `print`. `Player`, `Inventory`, `Armour`, `Enemy`/`BossKind`, `GameData`, `Balance`, and an `ObservableObject` `GameState` that owns all randomness, combat, looting, crafting, bosses and the economy. Fully unit-testable with injectable RNG (`ScriptedGameRandom`/`SeededGameRandom`) and persistence (`MemorySaveStore`). |
-| `GameCore/Resources` | The original's data as bundled JSON (`rooms`, `weapons`, `breakdown`, `stats`, `recipes`, `shop`), decoded with `Codable`. The game stays data-driven. |
+| `GameCore/Resources` | The original's data as bundled JSON (`rooms`, `weapons`, `breakdown`, `stats`, `recipes`, `shop`, `prompts`), decoded with `Codable`. The game stays data-driven. |
 | `LostUI` | SwiftUI views observing `GameState`: HUD (❤️ 🍗 🚰 💷 + rooms/poison/modifier), rooms with tappable 🚪 doors, boss encounters, merchant/scavenger traders, gambling, a reusable tabbed list (`TabbedPanel`), and sheets for inventory/stats/armour/Workbench/equip/drop/use/save. |
 | `LostApp` | Executable app target (`@main`). |
-| `GameCoreTests` | 79 tests: armour curve & tiers, slot specialisation, armour save migration, depth ratio, weapon/enemy damage & weighted HP, the full boss sequence + specials, room modifiers, Workbench craft/convert/upgrade/breakdown, new recipes & craftable healing, hardened blade, tabbed-list sort, scavenger pricing, save/load round-trip, plus a randomized soak run. |
+| `GameCoreTests` | 100 tests: armour curve/tiers/durability/breaking/repair, weapon repair, rope + leather crafting chain, removed-recipe checks, prompt-pool variety, slot specialisation, save migration, depth ratio, weapon/enemy damage & weighted HP, the full boss sequence + specials, room modifiers, the Workbench, hardened blade, tabbed-list sort, scavenger pricing, save/load round-trip, plus a randomized soak run. |
 
 ## Build & run
 
@@ -239,3 +239,67 @@ via the upgrade path, not crafted from scratch — documented choice); Iron Bar
 `Armour.upgradeCost`, `Armour.poisonResistPercent`, `Armour.floodReduction`;
 new scavenger sell prices for the leather/steel armour tiers. (Existing
 `Armour.ceiling/scale/flat`, `Durability.hardenedMultiplier` reused.)
+
+---
+
+## What changed in the "Lost" update (rope, armour durability, repair, prompts)
+
+A sixth feature pass. Save format is now **v5** and loads v1–v4 saves gracefully
+(equipped pieces without stored durability load at full). New mechanical tuning
+is in `Balance.swift`; recipe ingredient lists stay in `recipes.json`; flavour
+text lives in the new `prompts.json`.
+
+### Rope material + crafting chain
+- New early material **rope** (🪢, crafting category). **Rope recipe: 1 branch →
+  3 rope** (the multi-output yield is `Balance.Crafting.ropePerBranch`).
+- **Leather armour is rope-crafted:** Leather Cap 4 rope, Leather Vest 6 rope,
+  Leather Boots 3 rope — the only craftable armour, and the way into each slot.
+- **Torch recipe changed** to `1 branch + 1 rope` (was branch + scrapmetal); the
+  old entry is removed.
+
+### Armour durability + breaking
+- Each equipped piece has a durability pool by slot/tier
+  (`Balance.Armour.durabilityPool`: leather 25/35/28 … steel 75/100/85). Fresh
+  craft/upgrade starts full; tracked per slot and persisted.
+- **Every hit the player takes** (combat, failed-run, no-weapon, "too long
+  looking", trap-room) wears **1 durability on 1–2 random equipped slots** (50/50).
+  When boots negate/reduce a flood, the boots wear 1.
+- At 0 a piece **breaks**, emptying the slot and dropping tier-scaled scrap
+  (`Balance.Armour.breakDrop`: leather→1 rope, scrap→2🔩, iron→2🔩+1⛓️,
+  steel→3🔩+1🧱), with a flavour message. A broken slot means crafting fresh
+  leather and climbing the tiers again.
+
+### Armour repair (all tiers, diminishing returns)
+At the Workbench Upgrade tab. Restore amount scales inversely with current
+durability: `repairAmount = max(ceil(max·REPAIR_FLOOR), round(max·REPAIR_BASE·
+(1−cur/max)))`, capped at max. `Balance.Armour.repairBase = 0.6`,
+`repairFloor = 0.10`. Fixed material cost per tier/slot (`Armour.repairCost`):
+rope→scrapmetal→iron→ironBar by tier; chest costs 1 more than head/legs. A 🔧
+shows next to any piece below max that you can currently afford to repair.
+
+### Armour crafting rework
+Direct-craft **Scrap/Iron/Steel** armour recipes were removed from
+`recipes.json` (scrap helmet/chestplate/boots — and the old raw-iron-from-scrap
+recipe). Leather is the only craftable armour; all higher tiers are reached only
+by **upgrading** an equipped piece (Leather→Scrap 5🔩, Scrap→Iron 4⛓️,
+Iron→Steel 3🧱), which sets full durability of the new tier. Craft tab now shows:
+rope, leather cap/vest/boots, torch, bandage, medkit, iron bar, hardened blade.
+
+### Weapon repair
+At the Workbench Upgrade tab, per-instance, preserving upgrade level
+(`Balance.WeaponRepair.costs`): branch 1 rope/+8, fork 2 rope/+8, bat·knife 2🔩/
++10, shovel 3🔩/+10, crowbar 3🔩/+12, sword 3⛓️/+15, longsword 4⛓️/+15. Capped at
+max; a 🔧 marks affordable, below-max weapons in the lists.
+
+### Expanded prompt pool
+Repeated-event flavour now lives in `prompts.json` as arrays (5–6 variants each)
+for: room entry, loot success/failure, enemy encounter, escape success/failure,
+player-lands-hit, player-takes-hit, trap/dark/flooded entry, merchant/scavenger
+appearance, and armour-break. A dedicated flavour RNG (separate from the gameplay
+RNG) picks one per event, so the variety never disturbs gameplay determinism.
+
+### New `Balance.swift` constants
+`Crafting.ropePerBranch` / `Crafting.outputCount`; `Armour.durabilityPool` /
+`Armour.durability`; `Armour.breakDrop`; `Armour.repairBase` /
+`Armour.repairFloor` / `Armour.repairAmount` / `Armour.repairCost`;
+`WeaponRepair.costs`.

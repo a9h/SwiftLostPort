@@ -661,34 +661,69 @@ final class GameCoreTests: XCTestCase {
 
     func testCraftingConsumesExactIngredients() {
         let game = startInRoom(doors: 1, thenScript: [])
-        game.inventory.add("scrapmetal", count: 7)
-        XCTAssertTrue(game.craftableRecipes.contains("scrapHelmet"))
-        game.craft("scrapHelmet")
-        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 2) // 7 - 5 exactly
-        XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 1)
+        game.inventory.add("rope", count: 6)
+        XCTAssertTrue(game.craftableRecipes.contains("leatherCap"))
+        game.craft("leatherCap") // 4 rope
+        XCTAssertEqual(game.inventory.count(of: "rope"), 2) // 6 - 4 exactly
+        XCTAssertEqual(game.inventory.count(of: "leatherCap"), 1)
     }
 
     func testCannotCraftWithoutIngredients() {
         let game = startInRoom(doors: 1, thenScript: [])
-        game.inventory.add("scrapmetal", count: 2)
-        XCTAssertFalse(game.canCraft("scrapHelmet"))
-        game.craft("scrapHelmet")
-        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 2) // unchanged
-        XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 0)
+        game.inventory.add("rope", count: 2)
+        XCTAssertFalse(game.canCraft("leatherCap")) // needs 4
+        game.craft("leatherCap")
+        XCTAssertEqual(game.inventory.count(of: "rope"), 2) // unchanged
+        XCTAssertEqual(game.inventory.count(of: "leatherCap"), 0)
     }
 
-    // MARK: - New crafting recipes (Part 5)
+    // MARK: - Rope material + crafting chain (Part 1)
 
-    func testNewArmourAndMaterialRecipesDeductCorrectly() {
+    func testRopeRecipeYieldsThreePerBranch() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // Scrap Chestplate: 8 scrapmetal.
-        game.inventory.add("scrapmetal", count: 8)
-        XCTAssertTrue(game.canCraft("scrapChestplate"))
-        game.craft("scrapChestplate")
-        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
-        XCTAssertEqual(game.inventory.count(of: "scrapChestplate"), 1)
+        game.inventory.add("branch")
+        XCTAssertTrue(game.canCraft("rope"))
+        game.craft("rope")
+        XCTAssertEqual(game.inventory.count(of: "rope"), 3) // 1 branch → 3 rope
+        XCTAssertFalse(game.inventory.has("branch"))         // branch consumed
+    }
 
-        // Iron Bar: 3 iron + 2 scrapmetal.
+    func testLeatherArmourRecipesDeductRope() {
+        let cap = startInRoom(doors: 1, thenScript: [])
+        cap.inventory.add("rope", count: 4)
+        cap.craft("leatherCap")
+        XCTAssertEqual(cap.inventory.count(of: "rope"), 0)
+        XCTAssertEqual(cap.inventory.count(of: "leatherCap"), 1)
+
+        let vest = startInRoom(doors: 1, thenScript: [])
+        vest.inventory.add("rope", count: 6)
+        vest.craft("leatherVest")
+        XCTAssertEqual(vest.inventory.count(of: "rope"), 0)
+        XCTAssertEqual(vest.inventory.count(of: "leatherVest"), 1)
+
+        let boots = startInRoom(doors: 1, thenScript: [])
+        boots.inventory.add("rope", count: 3)
+        boots.craft("leatherBoots")
+        XCTAssertEqual(boots.inventory.count(of: "rope"), 0)
+        XCTAssertEqual(boots.inventory.count(of: "leatherBoots"), 1)
+    }
+
+    func testTorchRecipeUsesBranchAndRope() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Torch now needs 1 branch + 1 rope (not scrapmetal).
+        game.inventory.add("branch")
+        game.inventory.add("scrapmetal")
+        XCTAssertFalse(game.canCraft("torch")) // scrapmetal no longer counts
+        game.inventory.add("rope")
+        XCTAssertTrue(game.canCraft("torch"))
+        game.craft("torch")
+        XCTAssertEqual(game.inventory.count(of: "torch"), 1)
+        XCTAssertFalse(game.inventory.has("branch"))
+        XCTAssertFalse(game.inventory.has("rope"))
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 1) // untouched
+    }
+
+    func testIronBarRecipeDeductsCorrectly() {
         let bar = startInRoom(doors: 1, thenScript: [])
         bar.inventory.add("iron", count: 3)
         bar.inventory.add("scrapmetal", count: 2)
@@ -697,15 +732,30 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(bar.inventory.count(of: "iron"), 0)
         XCTAssertEqual(bar.inventory.count(of: "scrapmetal"), 0)
         XCTAssertEqual(bar.inventory.count(of: "ironBar"), 1)
+    }
 
-        // Torch: 1 branch + 1 scrapmetal → a fresh weapon instance.
-        let torch = startInRoom(doors: 1, thenScript: [])
-        torch.inventory.add("branch")
-        torch.inventory.add("scrapmetal")
-        XCTAssertTrue(torch.canCraft("torch"))
-        torch.craft("torch")
-        XCTAssertEqual(torch.inventory.count(of: "torch"), 1)
-        XCTAssertFalse(torch.inventory.has("branch"))
+    func testRemovedDirectArmourRecipesAreNotCraftable() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Plenty of every material — still none of these craft (recipes gone).
+        game.inventory.add("scrapmetal", count: 20)
+        game.inventory.add("iron", count: 20)
+        game.inventory.add("ironBar", count: 20)
+        let armourPieces = ["scrapHelmet", "scrapChestplate", "scrapBoots",
+                            "ironHelmet", "ironChestplate", "ironBoots",
+                            "steelHelmet", "steelChestplate", "steelBoots"]
+        for removed in armourPieces {
+            XCTAssertNil(game.data.recipes[removed], "\(removed) recipe should be gone")
+            XCTAssertFalse(game.canCraft(removed), "\(removed) should not be craftable")
+            game.craft(removed) // no-op
+            XCTAssertEqual(game.inventory.count(of: removed), 0, "\(removed) should not have been made")
+        }
+        // The raw-iron-from-scrap recipe is gone too (iron comes from loot now).
+        XCTAssertNil(game.data.recipes["iron"])
+        XCTAssertFalse(game.canCraft("iron"))
+        // The craftable set is exactly the leather/torch/healing/material list.
+        XCTAssertEqual(Set(game.data.recipes.keys),
+                       ["rope", "leatherCap", "leatherVest", "leatherBoots",
+                        "torch", "bandage", "medkit", "ironBar"])
     }
 
     func testCraftableHealingBandageAndMedkit() {
@@ -753,6 +803,255 @@ final class GameCoreTests: XCTestCase {
         XCTAssertTrue(table?.contains("bandage") ?? false)
     }
 
+    // MARK: - Armour durability + breaking (Part 2)
+
+    /// Helper: a fully-armoured leather kit at full durability.
+    private func fullLeatherKit() -> Armour {
+        Armour(head: .leather, chest: .leather, legs: .leather,
+               headDurability: 25, chestDurability: 35, legsDurability: 28)
+    }
+
+    func testArmourWearOneSlotLosesOneDurability() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = fullLeatherKit()
+        // affected = 1, pick index 1 (chest).
+        game.rng = ScriptedGameRandom([1, 1])
+        game.wearArmour()
+        XCTAssertEqual(game.player.armour.currentDurability(in: .head), 25)
+        XCTAssertEqual(game.player.armour.currentDurability(in: .chest), 34) // -1
+        XCTAssertEqual(game.player.armour.currentDurability(in: .legs), 28)
+    }
+
+    func testArmourWearTwoDistinctSlots() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = fullLeatherKit()
+        // affected = 2; first index 0 (head); second index 1 of remaining [chest,legs] -> legs.
+        game.rng = ScriptedGameRandom([2, 0, 1])
+        game.wearArmour()
+        XCTAssertEqual(game.player.armour.currentDurability(in: .head), 24) // -1
+        XCTAssertEqual(game.player.armour.currentDurability(in: .chest), 35) // untouched
+        XCTAssertEqual(game.player.armour.currentDurability(in: .legs), 27) // -1
+    }
+
+    func testArmourWearRespectsNumberOfEquippedSlots() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Only legs equipped; even rolling "2 slots" only that slot can wear.
+        game.player.armour = Armour(legs: .leather, legsDurability: 28)
+        game.rng = ScriptedGameRandom([2, 0])
+        game.wearArmour()
+        XCTAssertEqual(game.player.armour.currentDurability(in: .legs), 27)
+        // Unarmoured: no slots, no wear, consumes no RNG.
+        let bare = startInRoom(doors: 1, thenScript: [])
+        bare.rng = ScriptedGameRandom([]) // empty — must not be read
+        bare.wearArmour()
+        XCTAssertNil(bare.player.armour.material(in: .head))
+    }
+
+    func testFloodedRoomWearsBootsByOne() {
+        // Iron boots negate the flood but still wear 1 durability.
+        let game = makeGame(script: [50, 100, 100, 4, 1, 12, 15])
+        game.startNewGame()
+        game.player.armour = Armour(legs: .iron, legsDurability: 62)
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 12, 15]) // flooded again
+        game.takeDoor(1)
+        XCTAssertEqual(game.roomModifier, .flooded)
+        XCTAssertEqual(game.player.currentHealth, 85) // immune, no HP lost
+        XCTAssertEqual(game.player.armour.currentDurability(in: .legs), 61) // boots wore 1
+    }
+
+    func testArmourBreakingDropsTierScaledMaterials() {
+        // Leather → 1 rope.
+        let g1 = startInRoom(doors: 1, thenScript: [])
+        g1.player.armour = Armour(head: .leather, headDurability: 1)
+        g1.wearArmourSlot(.head)
+        XCTAssertNil(g1.player.armour.material(in: .head))
+        XCTAssertEqual(g1.inventory.count(of: "rope"), 1)
+
+        // Scrap → 2 scrapmetal.
+        let g2 = startInRoom(doors: 1, thenScript: [])
+        g2.player.armour = Armour(chest: .scrap, chestDurability: 1)
+        g2.wearArmourSlot(.chest)
+        XCTAssertNil(g2.player.armour.material(in: .chest))
+        XCTAssertEqual(g2.inventory.count(of: "scrapmetal"), 2)
+
+        // Iron → 2 scrapmetal + 1 iron.
+        let g3 = startInRoom(doors: 1, thenScript: [])
+        g3.player.armour = Armour(legs: .iron, legsDurability: 1)
+        g3.wearArmourSlot(.legs)
+        XCTAssertNil(g3.player.armour.material(in: .legs))
+        XCTAssertEqual(g3.inventory.count(of: "scrapmetal"), 2)
+        XCTAssertEqual(g3.inventory.count(of: "iron"), 1)
+
+        // Steel → 3 scrapmetal + 1 ironBar.
+        let g4 = startInRoom(doors: 1, thenScript: [])
+        g4.player.armour = Armour(head: .steel, headDurability: 1)
+        g4.wearArmourSlot(.head)
+        XCTAssertNil(g4.player.armour.material(in: .head))
+        XCTAssertEqual(g4.inventory.count(of: "scrapmetal"), 3)
+        XCTAssertEqual(g4.inventory.count(of: "ironBar"), 1)
+    }
+
+    func testArmourBreakMessageFiresOneOfTheVariants() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.promptRng = ScriptedGameRandom([0]) // first armourBreak variant
+        game.player.armour = Armour(legs: .leather, legsDurability: 1)
+        game.wearArmourSlot(.legs)
+        let last = game.log.last
+        XCTAssertEqual(last?.kind, .warning)
+        // Variant 0: "Your {tier} {slot} finally gives out, crumbling into {materials}."
+        XCTAssertTrue(last?.text.contains("Leather") ?? false)
+        XCTAssertTrue(last?.text.contains("legs") ?? false)
+        XCTAssertTrue(last?.text.contains("Rope") ?? false)
+    }
+
+    // MARK: - Armour repair (Part 2d)
+
+    func testArmourRepairFormulaDiminishingReturns() {
+        // Steel chest, max 100. repairAmount = max(ceil(10), round(60*(1-cur/100))).
+        let max = 100
+        XCTAssertEqual(Balance.Armour.repairAmount(maxDurability: max, currentDurability: 0), 60)   // 0%
+        XCTAssertEqual(Balance.Armour.repairAmount(maxDurability: max, currentDurability: 25), 45)  // 25%
+        XCTAssertEqual(Balance.Armour.repairAmount(maxDurability: max, currentDurability: 50), 30)  // 50%
+        XCTAssertEqual(Balance.Armour.repairAmount(maxDurability: max, currentDurability: 75), 15)  // 75%
+        XCTAssertEqual(Balance.Armour.repairAmount(maxDurability: max, currentDurability: 95), 10)  // floor kicks in (3 -> 10)
+        XCTAssertEqual(Balance.Armour.repairBase, 0.6)
+        XCTAssertEqual(Balance.Armour.repairFloor, 0.10)
+    }
+
+    func testArmourRepairCostsByTierAndSlot() {
+        XCTAssertEqual(Balance.Armour.repairCost(.head, .leather).ingredient, "rope")
+        XCTAssertEqual(Balance.Armour.repairCost(.head, .leather).count, 2)
+        XCTAssertEqual(Balance.Armour.repairCost(.chest, .leather).count, 3) // chest +1
+        XCTAssertEqual(Balance.Armour.repairCost(.head, .scrap).ingredient, "scrapmetal")
+        XCTAssertEqual(Balance.Armour.repairCost(.legs, .iron).ingredient, "iron")
+        XCTAssertEqual(Balance.Armour.repairCost(.head, .steel).ingredient, "ironBar")
+        XCTAssertEqual(Balance.Armour.repairCost(.chest, .steel).count, 3)
+    }
+
+    func testArmourRepairAppliesAmountAndDeductsMaterials() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = Armour(chest: .steel, chestDurability: 50)
+        game.inventory.add("ironBar", count: 3)
+        game.repairArmour(.chest)
+        XCTAssertEqual(game.player.armour.currentDurability(in: .chest), 80) // +30
+        XCTAssertEqual(game.inventory.count(of: "ironBar"), 0)
+    }
+
+    func testArmourRepairNeverExceedsMax() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = Armour(chest: .steel, chestDurability: 95)
+        game.inventory.add("ironBar", count: 3)
+        game.repairArmour(.chest) // amount 10 capped to 5 (100-95)
+        XCTAssertEqual(game.player.armour.currentDurability(in: .chest), 100)
+    }
+
+    func testCanRepairArmourGatesOnBelowFullAndMaterials() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = Armour(head: .leather, headDurability: 10) // max 25, below full
+        XCTAssertFalse(game.canRepairArmour(.head)) // no rope
+        game.inventory.add("rope", count: 2)
+        XCTAssertTrue(game.canRepairArmour(.head)) // below full + materials
+        game.player.armour.setStoredDurability(25, in: .head) // now full
+        XCTAssertFalse(game.canRepairArmour(.head)) // not below full
+    }
+
+    func testArmourUpgradeSetsFullDurabilityOfNewTier() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.player.armour = Armour(head: .leather, headDurability: 5) // damaged leather
+        game.inventory.add("scrapmetal", count: 5)
+        game.upgradeArmour(.head)
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.scrap)
+        XCTAssertEqual(game.player.armour.currentDurability(in: .head), 35) // full scrap, not 5
+    }
+
+    // MARK: - Weapon repair (Part 4)
+
+    func testWeaponRepairPerWeaponCostRestoreAndCap() {
+        let table: [(weapon: String, ingredient: String, count: Int, restore: Int)] = [
+            ("branch", "rope", 1, 8), ("fork", "rope", 2, 8),
+            ("bat", "scrapmetal", 2, 10), ("knife", "scrapmetal", 2, 10),
+            ("shovel", "scrapmetal", 3, 10), ("crowbar", "scrapmetal", 3, 12),
+            ("sword", "iron", 3, 15), ("longsword", "iron", 4, 15),
+        ]
+        for row in table {
+            let game = startInRoom(doors: 1, thenScript: [])
+            game.inventory.add(row.weapon)
+            let max = Balance.Durability.maxByWeapon[row.weapon]!
+            for _ in 0..<(max - 2) { _ = game.inventory.degradeWeapon(row.weapon) } // -> 2
+            game.inventory.add(row.ingredient, count: row.count)
+            XCTAssertTrue(game.canRepairWeapon(row.weapon), row.weapon)
+            game.repairWeapon(row.weapon)
+            let inst = game.inventory.instances(of: row.weapon).first
+            XCTAssertEqual(inst?.durability, min(max, 2 + row.restore), row.weapon)
+            XCTAssertEqual(game.inventory.count(of: row.ingredient), 0, row.weapon)
+        }
+    }
+
+    func testWeaponRepairPreservesUpgradeLevelAndCapsAtMax() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("knife") // max 15
+        game.inventory.add("scrapmetal", count: 3)
+        game.upgradeWeaponDamage("knife") // level 1
+        for _ in 0..<10 { _ = game.inventory.degradeWeapon("knife") } // 15 -> 5
+        game.inventory.add("scrapmetal", count: 2)
+        game.repairWeapon("knife") // +10 -> capped at 15
+        let inst = game.inventory.instances(of: "knife").first
+        XCTAssertEqual(inst?.durability, 15)
+        XCTAssertEqual(inst?.upgradeLevel, 1) // preserved
+    }
+
+    func testCanRepairWeaponGatesOnBelowMaxAndMaterials() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("sword") // 30/30, full
+        XCTAssertFalse(game.canRepairWeapon("sword")) // at max
+        _ = game.inventory.degradeWeapon("sword") // 29/30
+        XCTAssertFalse(game.canRepairWeapon("sword")) // no iron
+        game.inventory.add("iron", count: 3)
+        XCTAssertTrue(game.canRepairWeapon("sword")) // below max + materials
+    }
+
+    // MARK: - Prompt pool (Part 5)
+
+    func testPromptPoolsHaveEnoughVariantsAndSubstituteCleanly() {
+        let prompts = GameData.load().prompts
+        var rng: GameRandom = SeededGameRandom(seed: 7)
+        let tokens = ["room": "Kitchen", "item": "🔪 Knife", "damage": "5",
+                      "enemy": "a ghoul", "tier": "Leather", "slot": "head",
+                      "materials": "1× Rope", "bootsNote": "take the hit"]
+        for event in PromptEvent.allCases {
+            XCTAssertGreaterThanOrEqual(prompts.variants(event).count, 5, "\(event) needs >= 5 variants")
+            // Pick a few times — never empty, never leaves an unsubstituted token.
+            for _ in 0..<10 {
+                let text = prompts.pick(event, using: &rng, replacing: tokens)
+                XCTAssertFalse(text.isEmpty, "\(event) produced empty text")
+                XCTAssertFalse(text.contains("{"), "\(event) left a token: \(text)")
+            }
+        }
+    }
+
+    // MARK: - Armour durability save migration (Part 6)
+
+    func testArmourDurabilityPersistsAndOldSavesDefaultToFull() throws {
+        // Round-trip: a worn equipped piece keeps its durability.
+        let game = startInRoom(doors: 2, thenScript: [])
+        game.inventory.add("rope", count: 4)
+        game.craft("leatherCap")
+        game.equip("leatherCap")        // head leather, durability 25
+        game.wearArmourSlot(.head)      // -> 24
+        game.saveGame(slot: 1)
+        game.startNewGame()
+        XCTAssertTrue(game.loadGame(slot: 1))
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.leather)
+        XCTAssertEqual(game.player.armour.currentDurability(in: .head), 24)
+
+        // Old save (material but no durability key) loads as full durability.
+        let oldJSON = "{\"head\":\"iron\"}"
+        let migrated = try JSONDecoder().decode(Armour.self, from: Data(oldJSON.utf8))
+        XCTAssertEqual(migrated.head, ArmourMaterial.iron)
+        XCTAssertNil(migrated.headDurability)                       // nothing stored
+        XCTAssertEqual(migrated.currentDurability(in: .head), 55)   // reads full iron pool
+    }
+
     // MARK: - Tabbed list sort (Part 1)
 
     func testItemsByQuantitySortDescendingWithAlphabeticalTiebreak() {
@@ -778,10 +1077,10 @@ final class GameCoreTests: XCTestCase {
         game.traderKind = .scavenger
         XCTAssertFalse(game.hasGrindstone)
 
-        // Craft.
-        game.inventory.add("scrapmetal", count: 5)
-        game.craft("scrapHelmet")
-        XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 1)
+        // Craft (leather is the only craftable armour now).
+        game.inventory.add("rope", count: 4)
+        game.craft("leatherCap")
+        XCTAssertEqual(game.inventory.count(of: "leatherCap"), 1)
 
         // Convert.
         game.inventory.add("knife")
@@ -1142,7 +1441,8 @@ final class GameCoreTests: XCTestCase {
                 case .room:
                     game.loot()
                     if let food = game.inventory.items(in: .consumable).first { game.use(food.id) }
-                    if game.canCraft("scrapHelmet") { game.craft("scrapHelmet") }
+                    if game.canCraft("rope") { game.craft("rope") }
+                    if game.canCraft("leatherCap") { game.craft("leatherCap") }
                     game.takeDoor(1)
                 case .encounter:
                     if game.ownedWeapons.isEmpty || steps % 2 == 0 {

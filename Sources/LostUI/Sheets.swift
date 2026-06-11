@@ -56,14 +56,16 @@ struct ItemRow: View {
 struct InventorySheet: View {
     @EnvironmentObject private var game: GameState
 
-    /// e.g. "+2 24/30" per instance ("∞" for the torch).
+    /// e.g. "+2 24/30" per instance ("∞" for the torch). A 🔧 is appended when
+    /// the active instance is below max and the player can afford a repair.
     private func durabilityDetail(_ weaponID: String) -> String {
         let parts = game.inventory.instances(of: weaponID).map { inst -> String in
             let lvl = inst.upgradeLevel > 0 ? "+\(inst.upgradeLevel) " : ""
             if let d = inst.durability, let m = inst.maxDurability { return "\(lvl)\(d)/\(m)" }
             return "\(lvl)∞"
         }
-        return parts.joined(separator: ", ")
+        let wrench = game.canRepairWeapon(weaponID) ? " 🔧" : ""
+        return parts.joined(separator: ", ") + wrench
     }
 
     var body: some View {
@@ -147,6 +149,8 @@ struct ArmourSheet: View {
     private func armourLine(_ slot: ArmourSlot) -> some View {
         let armour = game.player.armour
         let material = armour.material(in: slot)
+        let durability = armour.durabilityText(in: slot)
+        let wrench = game.canRepairArmour(slot) ? " 🔧" : ""
         return VStack(spacing: 2) {
             HStack {
                 Text(material.map { ItemCatalog.emoji(ArmourCatalog.id(slot: slot, material: $0)) } ?? slot.emoji)
@@ -158,8 +162,15 @@ struct ArmourSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(material.map { "\($0.displayName) (\(armour.value(in: slot)))" } ?? "—")
-                    .font(.callout.monospaced().bold())
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(material.map { "\($0.displayName) (\(armour.value(in: slot)))" } ?? "—")
+                        .font(.callout.monospaced().bold())
+                    if let durability {
+                        Text("🛡️ \(durability)\(wrench)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .frame(maxWidth: 300)
@@ -205,29 +216,46 @@ struct WorkbenchSheet: View {
         }
     }
 
-    // MARK: Craft
+    // MARK: Craft (leather armour, healing, materials, torch + hardened blade)
 
     private var craftTab: some View {
-        let craftable = game.craftableRecipes
-        return Group {
-            if craftable.isEmpty {
-                QuietPlaceholder(text: "Nothing craftable yet — gather more materials.")
-            } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        Text("You can make:").font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(craftable, id: \.self) { recipeID in
-                            ItemRow(id: recipeID, count: 1,
-                                    detail: recipeDetail(recipeID),
-                                    actionLabel: "Craft",
-                                    action: { game.craft(recipeID) })
-                        }
+        ScrollView {
+            VStack(spacing: 6) {
+                let craftable = game.craftableRecipes
+                if craftable.isEmpty {
+                    Text("Nothing craftable yet — gather more materials.")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("You can make:").font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(craftable, id: \.self) { recipeID in
+                        ItemRow(id: recipeID, count: recipeYield(recipeID),
+                                detail: recipeDetail(recipeID),
+                                actionLabel: "Craft",
+                                action: { game.craft(recipeID) })
                     }
+                }
+
+                Divider().padding(.vertical, 2)
+                sectionHeader("Harden a blade (1× 🧱 → +50% durability)")
+                if game.hardenableWeapons.isEmpty {
+                    quietLine("No hardenable weapons.")
+                }
+                ForEach(game.hardenableWeapons, id: \.id) { weapon in
+                    ItemRow(id: weapon.id, count: weapon.count,
+                            detail: "max \(game.inventory.activeMaxDurability(of: weapon.id) ?? 0)",
+                            actionLabel: "Harden",
+                            actionDisabled: !game.canHardenBlade(weapon.id),
+                            action: { game.hardenBlade(weapon.id) })
                 }
             }
         }
+    }
+
+    private func recipeYield(_ recipeID: String) -> Int {
+        GameCore.Balance.Crafting.outputCount(for: recipeID)
     }
 
     private func recipeDetail(_ recipeID: String) -> String {
@@ -237,7 +265,7 @@ struct WorkbenchSheet: View {
             .joined(separator: " + ")
     }
 
-    // MARK: Upgrade (weapon convert + sharpen + armour tiers + hardened blade)
+    // MARK: Upgrade (convert + sharpen + armour tiers + armour/weapon repair)
 
     private var upgradeTab: some View {
         ScrollView {
@@ -280,16 +308,21 @@ struct WorkbenchSheet: View {
                 }
 
                 Divider().padding(.vertical, 2)
-                sectionHeader("Harden a blade (1× 🧱 → +50% durability)")
-                if game.hardenableWeapons.isEmpty {
-                    quietLine("No hardenable weapons.")
+                sectionHeader("Repair armour")
+                if game.repairableArmourSlots.isEmpty {
+                    quietLine("No armour needs repairing.")
                 }
-                ForEach(game.hardenableWeapons, id: \.id) { weapon in
-                    ItemRow(id: weapon.id, count: weapon.count,
-                            detail: "max \(game.inventory.activeMaxDurability(of: weapon.id) ?? 0)",
-                            actionLabel: "Harden",
-                            actionDisabled: !game.canHardenBlade(weapon.id),
-                            action: { game.hardenBlade(weapon.id) })
+                ForEach(game.repairableArmourSlots) { slot in
+                    armourRepairRow(slot)
+                }
+
+                Divider().padding(.vertical, 2)
+                sectionHeader("Repair a weapon")
+                if game.repairableWeapons.isEmpty {
+                    quietLine("No weapons need repairing.")
+                }
+                ForEach(game.repairableWeapons, id: \.id) { weapon in
+                    weaponRepairRow(weapon.id, count: weapon.count)
                 }
             }
         }
@@ -308,6 +341,40 @@ struct WorkbenchSheet: View {
             actionLabel: "Reforge",
             actionDisabled: !game.canUpgradeArmour(slot),
             action: { game.upgradeArmour(slot) }
+        )
+    }
+
+    private func armourRepairRow(_ slot: ArmourSlot) -> some View {
+        let material = game.player.armour.material(in: slot)
+        let pieceID = material.map { ArmourCatalog.id(slot: slot, material: $0) } ?? ""
+        let durability = game.player.armour.durabilityText(in: slot) ?? ""
+        let wrench = game.canRepairArmour(slot) ? " 🔧" : ""
+        let cost = material.map { Balance.Armour.repairCost(slot, $0) }
+        let costText = cost.map { "\($0.count)× \(ItemCatalog.emoji($0.ingredient))" } ?? ""
+        return ItemRow(
+            id: pieceID,
+            count: 1,
+            detail: "\(durability)  \(costText)\(wrench)",
+            actionLabel: "Repair",
+            actionDisabled: !game.canRepairArmour(slot),
+            action: { game.repairArmour(slot) }
+        )
+    }
+
+    private func weaponRepairRow(_ weaponID: String, count: Int) -> some View {
+        let cost = GameCore.Balance.WeaponRepair.costs[weaponID]
+        let durability = game.inventory.instances(of: weaponID).first.map {
+            "\($0.durability ?? 0)/\($0.maxDurability ?? 0)"
+        } ?? ""
+        let wrench = game.canRepairWeapon(weaponID) ? " 🔧" : ""
+        let costText = cost.map { "+\($0.restore) for \($0.count)× \(ItemCatalog.emoji($0.ingredient))" } ?? ""
+        return ItemRow(
+            id: weaponID,
+            count: count,
+            detail: "\(durability)  \(costText)\(wrench)",
+            actionLabel: "Repair",
+            actionDisabled: !game.canRepairWeapon(weaponID),
+            action: { game.repairWeapon(weaponID) }
         )
     }
 
@@ -355,9 +422,10 @@ struct EquipSheet: View {
 
     var body: some View {
         SheetScaffold(title: "🪖 Equip Armour") {
+            equippedSummary
             if game.ownedArmourItems.isEmpty {
-                ContentUnavailableView("No armour owned", systemImage: "shield.slash",
-                                       description: Text("Craft a scrap helmet, chestplate or boots at the Workbench."))
+                ContentUnavailableView("No spare armour", systemImage: "shield.slash",
+                                       description: Text("Craft a leather cap, vest or boots at the Workbench, then upgrade tiers there."))
             } else {
                 TabItemList(items: game.inventory.itemsByQuantity(in: .armor),
                             emptyText: "No armour owned.") { id, count in
@@ -371,6 +439,29 @@ struct EquipSheet: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The currently-equipped piece per slot, with live durability (Part 6 UI).
+    private var equippedSummary: some View {
+        VStack(spacing: 4) {
+            ForEach(ArmourSlot.allCases) { slot in
+                let material = game.player.armour.material(in: slot)
+                HStack {
+                    Text("\(slot.emoji) \(slot.displayName)").font(.caption.monospaced())
+                    Spacer()
+                    if let material {
+                        let pieceID = ArmourCatalog.id(slot: slot, material: material)
+                        let durability = game.player.armour.durabilityText(in: slot) ?? ""
+                        Text("\(ItemCatalog.label(pieceID))  🛡️ \(durability)")
+                            .font(.caption.monospaced().bold())
+                    } else {
+                        Text("— empty —").font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func slotText(_ armourID: String) -> String {
