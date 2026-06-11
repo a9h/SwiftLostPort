@@ -55,7 +55,6 @@ struct ItemRow: View {
 
 struct InventorySheet: View {
     @EnvironmentObject private var game: GameState
-    @State private var category: ItemCategory = .consumable
 
     /// e.g. "+2 24/30" per instance ("∞" for the torch).
     private func durabilityDetail(_ weaponID: String) -> String {
@@ -69,27 +68,15 @@ struct InventorySheet: View {
 
     var body: some View {
         SheetScaffold(title: "🎒 Inventory") {
-            Picker("Category", selection: $category) {
-                ForEach(ItemCategory.displayOrder) { cat in
-                    Text("\(cat.emoji) \(cat.displayName)").tag(cat)
-                }
-            }
-            .pickerStyle(.menu)
-
-            let items = game.inventory.items(in: category)
-            if items.isEmpty {
-                ContentUnavailableView("Nothing here", systemImage: "tray",
-                                       description: Text("No \(category.displayName.lowercased()) yet."))
-            } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        ForEach(items, id: \.id) { item in
-                            ItemRow(id: item.id, count: item.count,
-                                    detail: category == .weapon ? durabilityDetail(item.id) : nil)
-                        }
+            TabbedPanel(tabs: ItemCategory.displayOrder.map { cat in
+                TabbedPanel.Tab(id: cat.rawValue, label: "\(cat.emoji) \(cat.displayName)") {
+                    TabItemList(items: game.inventory.itemsByQuantity(in: cat),
+                                emptyText: "No \(cat.displayName.lowercased()) yet.") { id, count in
+                        ItemRow(id: id, count: count,
+                                detail: cat == .weapon ? durabilityDetail(id) : nil)
                     }
                 }
-            }
+            })
         }
     }
 }
@@ -134,9 +121,9 @@ struct ArmourSheet: View {
     var body: some View {
         SheetScaffold(title: "🛡️ Armour") {
             VStack(spacing: 10) {
-                armourLine("🪖", "Head", game.player.armour.head)
-                armourLine("🦺", "Chest", game.player.armour.chest)
-                armourLine("👢", "Legs", game.player.armour.legs)
+                ForEach(ArmourSlot.allCases) { slot in
+                    armourLine(slot)
+                }
                 Divider()
                 Text("Your armour reduces incoming damage by ~\(game.player.armour.reductionPercent)%")
                     .font(.callout.monospaced().bold())
@@ -144,6 +131,10 @@ struct ArmourSheet: View {
                 Text("(diminishing returns — approaches but never reaches 85%)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
+                Text("Upgrade pieces at the 🛠️ Workbench. 🦺 Chest is your damage backbone, 🪖 head resists poison, 👢 boots fend off floods.")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .padding(14)
             .overlay(
@@ -153,46 +144,85 @@ struct ArmourSheet: View {
         }
     }
 
-    private func armourLine(_ emoji: String, _ slot: String, _ value: Int) -> some View {
-        HStack {
-            Text(emoji).font(.title)
-            Text(slot).font(.callout.monospaced())
-            Spacer()
-            Text("\(value)").font(.title3.monospaced().bold())
+    private func armourLine(_ slot: ArmourSlot) -> some View {
+        let armour = game.player.armour
+        let material = armour.material(in: slot)
+        return VStack(spacing: 2) {
+            HStack {
+                Text(material.map { ItemCatalog.emoji(ArmourCatalog.id(slot: slot, material: $0)) } ?? slot.emoji)
+                    .font(.title)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(slot.displayName).font(.callout.monospaced())
+                    Text(specialisation(slot, material))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(material.map { "\($0.displayName) (\(armour.value(in: slot)))" } ?? "—")
+                    .font(.callout.monospaced().bold())
+            }
         }
-        .frame(maxWidth: 260)
+        .frame(maxWidth: 300)
+    }
+
+    /// The slot-specialisation summary line (Part 3c).
+    private func specialisation(_ slot: ArmourSlot, _ material: ArmourMaterial?) -> String {
+        guard let material else { return "empty" }
+        switch slot {
+        case .head:
+            return "\(Balance.Armour.poisonResistPercent[material] ?? 0)% poison resist"
+        case .chest:
+            return "primary damage reducer"
+        case .legs:
+            let r = Balance.Armour.floodReduction[material] ?? 0
+            return r >= 1.0 ? "immune to flooding" : "\(Int(r * 100))% flood protection"
+        }
     }
 }
 
-// MARK: - Crafting
+// MARK: - Workbench (Part 2: Craft + Upgrade + Breakdown, one tabbed menu)
 
-struct CraftingSheet: View {
+/// The combined metalworking menu. Reachable from an owned grindstone (room),
+/// or free at either trader — all three open this same sheet and call the same
+/// shared functions. Three tabs via the Part 1 tabbed component.
+struct WorkbenchSheet: View {
     @EnvironmentObject private var game: GameState
 
     var body: some View {
-        SheetScaffold(title: "🛠️ Crafting") {
-            HStack {
+        SheetScaffold(title: "🛠️ Workbench") {
+            HStack(spacing: 12) {
                 Text("🔩 ×\(game.inventory.count(of: "scrapmetal"))")
                 Text("⛓️ ×\(game.inventory.count(of: "iron"))")
+                Text("🧱 ×\(game.inventory.count(of: "ironBar"))")
             }
             .font(.callout.monospaced())
 
-            let craftable = game.craftableRecipes
+            TabbedPanel(tabs: [
+                TabbedPanel.Tab(id: "craft", label: "🛠️ Craft") { craftTab },
+                TabbedPanel.Tab(id: "upgrade", label: "🪒 Upgrade") { upgradeTab },
+                TabbedPanel.Tab(id: "breakdown", label: "🪨 Breakdown") { breakdownTab },
+            ])
+        }
+    }
+
+    // MARK: Craft
+
+    private var craftTab: some View {
+        let craftable = game.craftableRecipes
+        return Group {
             if craftable.isEmpty {
-                ContentUnavailableView("Nothing craftable", systemImage: "hammer",
-                                       description: Text("Collect more scrap metal — break down weapons with a grindstone."))
+                QuietPlaceholder(text: "Nothing craftable yet — gather more materials.")
             } else {
-                Text("You can make:").font(.callout.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
                 ScrollView {
                     VStack(spacing: 6) {
+                        Text("You can make:").font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(craftable, id: \.self) { recipeID in
-                            ItemRow(
-                                id: recipeID,
-                                count: 1,
-                                detail: recipeDetail(recipeID),
-                                actionLabel: "Craft",
-                                action: { game.craft(recipeID) }
-                            )
+                            ItemRow(id: recipeID, count: 1,
+                                    detail: recipeDetail(recipeID),
+                                    actionLabel: "Craft",
+                                    action: { game.craft(recipeID) })
                         }
                     }
                 }
@@ -206,32 +236,96 @@ struct CraftingSheet: View {
             .map { "\($0.value)× \(ItemCatalog.emoji($0.key))" }
             .joined(separator: " + ")
     }
-}
 
-// MARK: - Breakdown
+    // MARK: Upgrade (weapon convert + sharpen + armour tiers + hardened blade)
 
-struct BreakdownSheet: View {
-    @EnvironmentObject private var game: GameState
+    private var upgradeTab: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                sectionHeader("Convert a weapon")
+                let convertible = game.weaponConversions.filter { game.inventory.has($0.source) }
+                if convertible.isEmpty {
+                    quietLine("Nothing to convert.")
+                }
+                ForEach(convertible, id: \.source) { recipe in
+                    ItemRow(id: recipe.source, count: game.inventory.count(of: recipe.source),
+                            detail: "+\(recipe.cost)× 🔩 → \(ItemCatalog.label(recipe.result))",
+                            actionLabel: "Convert",
+                            actionDisabled: !game.canConvertWeapon(recipe.source),
+                            action: { game.convertWeapon(recipe.source) })
+                }
 
-    var body: some View {
-        SheetScaffold(title: "🪨 Breakdown") {
-            if !game.hasGrindstone {
-                ContentUnavailableView("You do not have a grindstone!", systemImage: "circle.slash",
-                                       description: Text("The trader sometimes sells one... for a price."))
-            } else if game.breakdownCandidates.isEmpty {
-                ContentUnavailableView("No weapons to break down", systemImage: "tray")
+                Divider().padding(.vertical, 2)
+                sectionHeader("Sharpen for +\(GameCore.Balance.Grindstone.upgradeDamageBonus) damage (\(GameCore.Balance.Grindstone.upgradeCost)× 🔩 each)")
+                if game.upgradeableWeapons.isEmpty {
+                    quietLine("No upgradeable weapons.")
+                }
+                ForEach(game.upgradeableWeapons, id: \.id) { weapon in
+                    let level = game.inventory.upgradeLevel(of: weapon.id)
+                    let cap = GameCore.Balance.Grindstone.cap(for: weapon.id)
+                    ItemRow(id: weapon.id, count: weapon.count,
+                            detail: "+\(level)/\(cap)",
+                            actionLabel: level >= cap ? "Maxed" : "Sharpen",
+                            actionDisabled: !game.canUpgradeWeaponDamage(weapon.id),
+                            action: { game.upgradeWeaponDamage(weapon.id) })
+                }
+
+                Divider().padding(.vertical, 2)
+                sectionHeader("Reforge armour to the next tier")
+                if game.upgradeableArmourSlots.isEmpty {
+                    quietLine("No armour to upgrade — equip a piece first.")
+                }
+                ForEach(game.upgradeableArmourSlots) { slot in
+                    armourUpgradeRow(slot)
+                }
+
+                Divider().padding(.vertical, 2)
+                sectionHeader("Harden a blade (1× 🧱 → +50% durability)")
+                if game.hardenableWeapons.isEmpty {
+                    quietLine("No hardenable weapons.")
+                }
+                ForEach(game.hardenableWeapons, id: \.id) { weapon in
+                    ItemRow(id: weapon.id, count: weapon.count,
+                            detail: "max \(game.inventory.activeMaxDurability(of: weapon.id) ?? 0)",
+                            actionLabel: "Harden",
+                            actionDisabled: !game.canHardenBlade(weapon.id),
+                            action: { game.hardenBlade(weapon.id) })
+                }
+            }
+        }
+    }
+
+    private func armourUpgradeRow(_ slot: ArmourSlot) -> some View {
+        let current = game.player.armour.material(in: slot)
+        let next = current?.next
+        let cost = next.flatMap { Balance.Armour.upgradeCost(to: $0) }
+        let nextID = next.map { ArmourCatalog.id(slot: slot, material: $0) } ?? ""
+        let currentID = current.map { ArmourCatalog.id(slot: slot, material: $0) } ?? ""
+        return ItemRow(
+            id: currentID,
+            count: 1,
+            detail: cost.map { "+\($0.count)× \(ItemCatalog.emoji($0.ingredient)) → \(ItemCatalog.label(nextID))" },
+            actionLabel: "Reforge",
+            actionDisabled: !game.canUpgradeArmour(slot),
+            action: { game.upgradeArmour(slot) }
+        )
+    }
+
+    // MARK: Breakdown
+
+    private var breakdownTab: some View {
+        Group {
+            if game.breakdownCandidates.isEmpty {
+                QuietPlaceholder(text: "No weapons to break down.")
             } else {
                 ScrollView {
                     VStack(spacing: 6) {
                         ForEach(game.breakdownCandidates, id: \.id) { weapon in
-                            ItemRow(
-                                id: weapon.id,
-                                count: weapon.count,
-                                detail: yieldText(weapon.id),
-                                actionLabel: "Grind",
-                                actionDisabled: game.data.breakdown[weapon.id] == nil,
-                                action: { game.breakdown(weapon.id) }
-                            )
+                            ItemRow(id: weapon.id, count: weapon.count,
+                                    detail: yieldText(weapon.id),
+                                    actionLabel: "Grind",
+                                    actionDisabled: game.data.breakdown[weapon.id] == nil,
+                                    action: { game.breakdown(weapon.id) })
                         }
                     }
                 }
@@ -242,6 +336,15 @@ struct BreakdownSheet: View {
     private func yieldText(_ weaponID: String) -> String {
         if let yield = game.data.breakdown[weaponID] { return "→ \(yield)× 🔩" }
         return "not breakable"
+    }
+
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text).font(.callout.monospaced().bold())
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func quietLine(_ text: String) -> some View {
+        Text(text).font(.caption.monospaced()).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -254,20 +357,14 @@ struct EquipSheet: View {
         SheetScaffold(title: "🪖 Equip Armour") {
             if game.ownedArmourItems.isEmpty {
                 ContentUnavailableView("No armour owned", systemImage: "shield.slash",
-                                       description: Text("Craft a scrap helmet or boots from scrap metal."))
+                                       description: Text("Craft a scrap helmet, chestplate or boots at the Workbench."))
             } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        ForEach(game.ownedArmourItems, id: \.id) { piece in
-                            ItemRow(
-                                id: piece.id,
-                                count: piece.count,
-                                detail: slotText(piece.id),
-                                actionLabel: "Equip",
-                                action: { game.equip(piece.id) }
-                            )
-                        }
-                    }
+                TabItemList(items: game.inventory.itemsByQuantity(in: .armor),
+                            emptyText: "No armour owned.") { id, count in
+                    ItemRow(id: id, count: count,
+                            detail: slotText(id),
+                            actionLabel: "Equip",
+                            action: { game.equip(id) })
                 }
                 Text("Damage reduction now: \(game.player.armour.reductionPercent)%")
                     .font(.caption.monospaced())
@@ -277,10 +374,8 @@ struct EquipSheet: View {
     }
 
     private func slotText(_ armourID: String) -> String {
-        if let value = game.data.stats.armourHead[armourID] { return "head +\(value)" }
-        if let value = game.data.stats.armourChest[armourID] { return "chest +\(value)" }
-        if let value = game.data.stats.armourFeet[armourID] { return "legs +\(value)" }
-        return ""
+        guard let info = ArmourCatalog.info(armourID) else { return "" }
+        return "\(info.slot.displayName.lowercased()) +\(Balance.Armour.baseValue(info.material, slot: info.slot))"
     }
 }
 
@@ -327,24 +422,22 @@ struct DropSheet: View {
 struct UseSheet: View {
     @EnvironmentObject private var game: GameState
 
+    /// Only the categories whose items actually do something when used.
+    private let usableCategories: [ItemCategory] = [.consumable, .health]
+
     var body: some View {
         SheetScaffold(title: "🍽️ Use Item") {
-            let usable = game.inventory.items(in: .consumable) + game.inventory.items(in: .health)
-            if usable.isEmpty {
-                ContentUnavailableView("Nothing usable", systemImage: "fork.knife",
-                                       description: Text("Loot rooms for food, drink and medical supplies."))
-            } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        ForEach(usable, id: \.id) { item in
-                            ItemRow(id: item.id, count: item.count,
-                                    detail: effectText(item.id),
-                                    actionLabel: "Use",
-                                    action: { game.use(item.id) })
-                        }
+            TabbedPanel(tabs: usableCategories.map { cat in
+                TabbedPanel.Tab(id: cat.rawValue, label: "\(cat.emoji) \(cat.displayName)") {
+                    TabItemList(items: game.inventory.itemsByQuantity(in: cat),
+                                emptyText: "No \(cat.displayName.lowercased()) to use.") { id, count in
+                        ItemRow(id: id, count: count,
+                                detail: effectText(id),
+                                actionLabel: "Use",
+                                action: { game.use(id) })
                     }
                 }
-            }
+            })
         }
     }
 
@@ -444,13 +537,16 @@ struct HelpSheet: View {
                 way: 🤠 Cowboy dodges, 👻 Ghoul poisons, 🧙 Plague Doctor heals, \
                 🗡️ Warlord hits twice & ignores torches, 🐺 Packmaster summons.
                 🏃 Run — escaping can cost you a few hits.
-                🛠️ Craft — 5×🔩 → 🪖 helmet, 3×🔩 → 👢 boots, 5×🔩 → ⛓️ iron.
-                🪒 Grindstone — convert weapons (knife→sword…) or sharpen one \
-                for +5 damage. Free at any trader, or carry your own.
-                🪨 Breakdown — with a grindstone, grind weapons into 🔩.
-                🪖 Equip — armour reduces damage with diminishing returns.
+                🛠️ Workbench — one menu, three tabs: CRAFT (armour, 🩹 bandages, \
+                🧰 medkits, 🧱 iron bars, 🔦 torches), UPGRADE (convert/sharpen \
+                weapons, reforge armour a tier, harden a blade) and BREAKDOWN \
+                (grind weapons into 🔩). Carry a 🪨 grindstone to use it in a \
+                room, or use it free at any trader.
+                🪖 Equip — one piece per slot, upgraded at the Workbench. 🦺 chest \
+                is your damage backbone, 🪖 head resists poison, 👢 boots fend \
+                off floods. Reduction has diminishing returns.
                 🧙 Trader — a merchant sells; a 🪤 scavenger buys your loot. \
-                Both gamble at 50/50 or H/L.
+                Both gamble at 50/50 or H/L, and both open the Workbench free.
                 💾 Save — from any normal room.
 
                 Good luck. You'll need it.
@@ -497,68 +593,3 @@ struct DebugSheet: View {
     }
 }
 
-// MARK: - Grindstone (convert + sharpen)
-
-struct GrindstoneSheet: View {
-    @EnvironmentObject private var game: GameState
-
-    /// Free at a trader; otherwise needs a grindstone in the pack.
-    private var available: Bool {
-        if case .trader = game.screen { return true }
-        return game.hasGrindstone
-    }
-
-    var body: some View {
-        SheetScaffold(title: "🪒 Grindstone") {
-            if !available {
-                ContentUnavailableView("You do not have a grindstone!", systemImage: "circle.slash",
-                                       description: Text("Buy one from a merchant (£125), or use a trader's free grindstone."))
-            } else {
-                Text("🔩 ×\(game.inventory.count(of: "scrapmetal")) scrap metal")
-                    .font(.callout.monospaced())
-                ScrollView {
-                    VStack(spacing: 8) {
-                        Text("Convert a weapon")
-                            .font(.callout.monospaced().bold())
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        let convertible = game.weaponConversions.filter { game.inventory.has($0.source) }
-                        if convertible.isEmpty {
-                            Text("Nothing to convert.").font(.caption.monospaced()).foregroundStyle(.secondary)
-                        }
-                        ForEach(convertible, id: \.source) { recipe in
-                            ItemRow(
-                                id: recipe.source,
-                                count: game.inventory.count(of: recipe.source),
-                                detail: "+\(recipe.cost)× 🔩 → \(ItemCatalog.label(recipe.result))",
-                                actionLabel: "Convert",
-                                actionDisabled: !game.canConvertWeapon(recipe.source),
-                                action: { game.convertWeapon(recipe.source) }
-                            )
-                        }
-
-                        Divider().padding(.vertical, 4)
-
-                        Text("Sharpen for +\(GameCore.Balance.Grindstone.upgradeDamageBonus) damage (\(GameCore.Balance.Grindstone.upgradeCost)× 🔩 each)")
-                            .font(.callout.monospaced().bold())
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if game.upgradeableWeapons.isEmpty {
-                            Text("No upgradeable weapons.").font(.caption.monospaced()).foregroundStyle(.secondary)
-                        }
-                        ForEach(game.upgradeableWeapons, id: \.id) { weapon in
-                            let level = game.inventory.upgradeLevel(of: weapon.id)
-                            let cap = GameCore.Balance.Grindstone.cap(for: weapon.id)
-                            ItemRow(
-                                id: weapon.id,
-                                count: weapon.count,
-                                detail: "+\(level)/\(cap)",
-                                actionLabel: level >= cap ? "Maxed" : "Sharpen",
-                                actionDisabled: !game.canUpgradeWeaponDamage(weapon.id),
-                                action: { game.upgradeWeaponDamage(weapon.id) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

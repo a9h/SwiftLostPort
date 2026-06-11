@@ -10,7 +10,7 @@ struct TraderView: View {
     @State private var confirmingBuy: String?
     @State private var confirmingSell: String?
     @State private var showGames = false
-    @State private var showGrindstone = false
+    @State private var showWorkbench = false
 
     private var isScavenger: Bool { game.traderKind == .scavenger }
 
@@ -35,10 +35,11 @@ struct TraderView: View {
 
             let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
             LazyVGrid(columns: columns, spacing: 8) {
-                ActionButton("Grindstone", "🪨", prominent: true) { showGrindstone = true }
+                ActionButton("Workbench", "🛠️", prominent: true) { showWorkbench = true }
                 ActionButton("Games", "🎲", prominent: true) { showGames = true }
                 ActionButton("Use", "🍽️") { sheet = .use }
                 ActionButton("Inventory", "🎒") { sheet = .inventory }
+                ActionButton("Equip", "🪖") { sheet = .equip }
                 ActionButton("Health", "❤️") { sheet = .stats }
                 ActionButton("Drop", "🗑️") { sheet = .drop }
                 ActionButton("Leave", "🚪") { game.leaveTrader() }
@@ -66,8 +67,8 @@ struct TraderView: View {
                 .frame(minWidth: 440, minHeight: 520)
                 #endif
         }
-        .sheet(isPresented: $showGrindstone) {
-            GrindstoneSheet().environmentObject(game)
+        .sheet(isPresented: $showWorkbench) {
+            WorkbenchSheet().environmentObject(game)
                 #if os(macOS)
                 .frame(minWidth: 420, minHeight: 460)
                 #endif
@@ -102,25 +103,57 @@ struct TraderView: View {
         }
     }
 
-    // MARK: - Scavenger sell list
+    // MARK: - Scavenger sell list (tabbed by category, Part 1)
+
+    /// Categories the scavenger buys, in display order. Only categories with at
+    /// least one sellable item type ever appear as tabs.
+    private var sellableCategories: [ItemCategory] {
+        ItemCategory.displayOrder.filter { cat in
+            game.sellableItems.contains { ItemCatalog.info($0.id).category == cat }
+        }
+    }
 
     private var sellList: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                ForEach(game.sellableItems, id: \.id) { item in
-                    HStack {
-                        Text("\(ItemCatalog.label(item.id)) ×\(item.count)").font(.callout.monospaced())
-                        Spacer()
-                        Text("£\(item.price)").font(.callout.monospaced().bold()).foregroundStyle(.green)
-                        Button("Sell") { confirmingSell = item.id }
-                            .buttonStyle(.borderedProminent).tint(.green)
+        Group {
+            if game.sellableItems.isEmpty {
+                Text("You've nothing the scavenger wants.")
+                    .font(.callout.monospaced()).foregroundStyle(.secondary).padding()
+            } else {
+                TabbedPanel(tabs: sellableCategories.map { cat in
+                    TabbedPanel.Tab(id: cat.rawValue, label: "\(cat.emoji) \(cat.displayName)") {
+                        sellTab(cat)
                     }
-                    .padding(10)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                }
-                if game.sellableItems.isEmpty {
-                    Text("You've nothing the scavenger wants.")
-                        .font(.callout.monospaced()).foregroundStyle(.secondary).padding()
+                })
+            }
+        }
+    }
+
+    /// Sellable items in one category, sorted most-owned first (alpha tiebreak).
+    private func sellTab(_ category: ItemCategory) -> some View {
+        let items = game.sellableItems
+            .filter { ItemCatalog.info($0.id).category == category }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return ItemCatalog.name(lhs.id) < ItemCatalog.name(rhs.id)
+            }
+        return Group {
+            if items.isEmpty {
+                QuietPlaceholder(text: "Nothing here to sell.")
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(items, id: \.id) { item in
+                            HStack {
+                                Text("\(ItemCatalog.label(item.id)) ×\(item.count)").font(.callout.monospaced())
+                                Spacer()
+                                Text("£\(item.price)").font(.callout.monospaced().bold()).foregroundStyle(.green)
+                                Button("Sell") { confirmingSell = item.id }
+                                    .buttonStyle(.borderedProminent).tint(.green)
+                            }
+                            .padding(10)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
                 }
             }
         }
