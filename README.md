@@ -18,9 +18,9 @@ Targets **iOS 17+** and **macOS 14+**.
 |---|---|
 | `GameCore` | Pure game logic — no UI, no `print`. `Player`, `Inventory`, `Armour`, `Enemy`/`BossKind`, `GameData`, `Balance`, and an `ObservableObject` `GameState` that owns all randomness, combat, looting, crafting, bosses and the economy. Fully unit-testable with injectable RNG (`ScriptedGameRandom`/`SeededGameRandom`) and persistence (`MemorySaveStore`). |
 | `GameCore/Resources` | The original's data as bundled JSON (`rooms`, `weapons`, `breakdown`, `stats`, `recipes`, `shop`), decoded with `Codable`. The game stays data-driven. |
-| `LostUI` | SwiftUI views observing `GameState`: HUD (❤️ 🍗 🚰 💷 + rooms/poison/modifier), rooms with tappable 🚪 doors, boss encounters, merchant/scavenger traders, gambling, and sheets for inventory/stats/armour/crafting/breakdown/equip/grindstone/drop/use/save. |
+| `LostUI` | SwiftUI views observing `GameState`: HUD (❤️ 🍗 🚰 💷 + rooms/poison/modifier), rooms with tappable 🚪 doors, boss encounters, merchant/scavenger traders, gambling, a reusable tabbed list (`TabbedPanel`), and sheets for inventory/stats/armour/Workbench/equip/drop/use/save. |
 | `LostApp` | Executable app target (`@main`). |
-| `GameCoreTests` | 67 tests: armour curve, depth ratio, weapon/enemy damage & weighted HP, the full boss sequence + specials, room modifiers, grindstone convert/upgrade, scavenger pricing, save/load round-trip, plus a randomized soak run. |
+| `GameCoreTests` | 79 tests: armour curve & tiers, slot specialisation, armour save migration, depth ratio, weapon/enemy damage & weighted HP, the full boss sequence + specials, room modifiers, Workbench craft/convert/upgrade/breakdown, new recipes & craftable healing, hardened blade, tabbed-list sort, scavenger pricing, save/load round-trip, plus a randomized soak run. |
 
 ## Build & run
 
@@ -161,8 +161,81 @@ Completing a full cycle sets **`maxDamageFlag`** — thereafter every boss hit
   `lucky < 33`) and pinned it with a test.
 
 ### Tests
-`GameCoreTests` now has 67 tests covering the armour curve, the 1:2 ratio,
-weapon/enemy damage and weighted HP, the full boss sequence and every special,
-post-cycle max damage, room-modifier frequency, grindstone convert/upgrade
-deduction and caps, scavenger sell pricing, and a full save/load round-trip
-across all new state.
+`GameCoreTests` covers the armour curve, the 1:2 ratio, weapon/enemy damage and
+weighted HP, the full boss sequence and every special, post-cycle max damage,
+room-modifier frequency, grindstone convert/upgrade deduction and caps,
+scavenger sell pricing, and a full save/load round-trip across all new state.
+
+---
+
+## What changed in the "Lost" update (Workbench, armour, healing, tabbed UI)
+
+A second feature pass on top of the rebalance. The save format is now **v4**
+and migrates v1–v3 saves (especially the old summed-integer armour) without
+crashing. New balance lives in `Balance.swift`; recipes/rooms in the JSON.
+
+### Tabbed list UI
+A reusable `TabbedPanel` (plus `TabItemList`/`QuietPlaceholder`) replaces every
+dropdown / `<`–`>` category control. A horizontal, horizontally-scrolling row
+of pressable tabs sits above the selected category's items, **sorted by
+quantity (most owned first), alphabetical by name on ties**
+(`Inventory.itemsByQuantity`). Per-instance weapons group by type, most-owned
+first, with instances shown durability/upgrade-first. Empty tabs show a quiet
+"Nothing here yet." Applied to the **Inventory** (Consumables, Weapons,
+Healables, Crafting, Armour, Tools), the **Use** menu (Consumables + Healables
+only — the usable categories), the **scavenger sell** menu (tabbed by category),
+and the **Workbench**.
+
+### Workbench consolidation
+The three old metalworking menus (grindstone, breakdown, crafting) are merged
+into one **Workbench** sheet with three tabs:
+- **Craft** — make items from materials (armour pieces, 🩹/🧰 healing, 🧱 iron
+  bars, 🔦 torches, …).
+- **Upgrade** — weapon convert (knife→sword…) + sharpen, **reforge armour a
+  tier**, and **harden a blade**. (Armour upgrades live here, not in Craft —
+  "Upgrade" = improve existing gear; documented choice.)
+- **Breakdown** — grind weapons into 🔩.
+
+It opens from **three access points that all call the same shared functions**:
+an owned 🪨 grindstone (room), the merchant, and the scavenger. **Crafting and
+breakdown are now available free at both traders** — an intended power increase.
+Breakdown no longer self-checks for a grindstone; access is the gate. The old
+`CraftingSheet`/`BreakdownSheet`/`GrindstoneSheet` and their entry points are
+gone.
+
+### Armour rework (tiers + slot specialisation)
+One piece per slot, upgraded up a material ladder — no more stacking duplicates.
+- **Tiers** Leather → Scrap → Iron → Steel per slot, with base values in
+  `Balance.Armour.tierBaseValue` (head 10/20/30/42, chest 12/25/38/52, legs
+  8/15/22/30). `rawArmour` sums the equipped tiers and feeds the unchanged
+  diminishing-returns curve.
+- **Equip** a found/crafted piece into an empty slot for free; equipping over a
+  filled slot swaps (old piece returns to the pack). **Upgrade** at the
+  Workbench consumes the current piece in place + materials
+  (`Balance.Armour.upgradeCost`: →Scrap 5🔩, →Iron 4⛓️, →Steel 3🧱).
+- **Slot specialisation:** 🦺 chest is the damage backbone (highest values);
+  🪖 head gives tier-scaled **poison resist** (`poisonResistPercent`: 10/20/35/50%);
+  👢 boots give tier-scaled **flood protection** (`floodReduction`:
+  leather 50%, scrap 75%, iron/steel immune). Surfaced on the armour screen.
+- **Migration:** old summed-int slots map to the nearest tier by base value
+  (0 → empty), handled in `Armour`'s `Codable`.
+
+### Healing availability
+- More health loot: heavier bandages/medkits in Bathroom, weapons-room
+  Workshop and AbandonedShop now stock medical supplies, and a new health-dense
+  **Pharmacy** room (💊) — eligible for room modifiers like any other.
+- Craftable heals: **Bandage** (2🔩 + 1💧) and **Medkit** (2🩹 + 1💉) give a
+  deterministic route off the loot RNG.
+
+### New crafting recipes (`recipes.json`)
+Scrap Helmet 5🔩, Scrap Chestplate 8🔩, Scrap Boots 3🔩 (iron/steel tiers come
+via the upgrade path, not crafted from scratch — documented choice); Iron Bar
+3⛓️ + 2🔩; Bandage 2🔩 + 1💧; Medkit 2🩹 + 1💉; Torch 1🌿 + 1🔩. Hardened Blade
+(Upgrade tab): any durability-tracked weapon + 1🧱 → +50% max durability
+(`Balance.Durability.hardenedMultiplier`).
+
+### New `Balance.swift` constants
+`Armour.tierBaseValue`, `Armour.baseValue`, `Armour.nearestTier`,
+`Armour.upgradeCost`, `Armour.poisonResistPercent`, `Armour.floodReduction`;
+new scavenger sell prices for the leather/steel armour tiers. (Existing
+`Armour.ceiling/scale/flat`, `Durability.hardenedMultiplier` reused.)

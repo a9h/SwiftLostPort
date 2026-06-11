@@ -27,17 +27,16 @@ final class GameCoreTests: XCTestCase {
     // MARK: - Armour / combat damage (A1: diminishing-returns soft cap)
 
     func testArmourReductionCurveHitsExpectedPoints() {
-        // pct = 0.85 * raw / (raw + 120)
-        XCTAssertEqual(Armour(head: 20, chest: 0, legs: 0).reductionPercent, 12)   // ~12%
-        XCTAssertEqual(Armour(head: 20, chest: 25, legs: 15).reductionPercent, 28) // raw 60 -> ~28%
-        XCTAssertEqual(Armour(head: 80, chest: 80, legs: 80).reductionPercent, 57) // raw 240 -> ~57%
+        // pct = 0.85 * raw / (raw + 120). The curve is a pure function of rawArmour.
+        XCTAssertEqual(Armour.reductionPercent(forRaw: 20), 12)   // ~12%
+        XCTAssertEqual(Armour.reductionPercent(forRaw: 60), 28)   // raw 60 -> ~28%
+        XCTAssertEqual(Armour.reductionPercent(forRaw: 240), 57)  // raw 240 -> ~57%
     }
 
     func testArmourReductionNeverReaches85Percent() {
         // Even at absurd armour totals the fraction stays strictly below the ceiling.
         for raw in [0, 100, 1_000, 100_000] {
-            let armour = Armour(head: raw, chest: 0, legs: 0)
-            XCTAssertLessThan(armour.reductionFraction, Balance.Armour.ceiling)
+            XCTAssertLessThan(Armour.reductionFraction(forRaw: raw), Balance.Armour.ceiling)
         }
     }
 
@@ -45,13 +44,13 @@ final class GameCoreTests: XCTestCase {
         var lastReduction = -1.0
         var lastDamage = Int.max
         for raw in stride(from: 0, through: 600, by: 20) {
-            let armour = Armour(head: raw, chest: 0, legs: 0)
             // More armour never reduces less (monotonic) and never exceeds ceiling.
-            XCTAssertGreaterThanOrEqual(armour.reductionFraction, lastReduction)
-            lastReduction = armour.reductionFraction
+            let reduction = Armour.reductionFraction(forRaw: raw)
+            XCTAssertGreaterThanOrEqual(reduction, lastReduction)
+            lastReduction = reduction
             // A 100-damage hit is always >= 1, never negative, never increasing health,
             // and never more than the raw damage.
-            let final = armour.reducedDamage(100)
+            let final = Armour.reducedDamage(100, rawArmour: raw)
             XCTAssertGreaterThanOrEqual(final, 1)
             XCTAssertLessThanOrEqual(final, 100)
             XCTAssertLessThanOrEqual(final, lastDamage) // more armour -> less or equal damage
@@ -66,7 +65,117 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(Armour().reducedDamage(2), 1)
         XCTAssertEqual(Armour().reducedDamage(1), 1)
         // raw 60 armour (28%) on a 50 hit: afterFlat 48 * (1-0.2833) = ~34.
-        XCTAssertEqual(Armour(head: 20, chest: 25, legs: 15).reducedDamage(50), 34)
+        XCTAssertEqual(Armour.reducedDamage(50, rawArmour: 60), 34)
+    }
+
+    // MARK: - Armour tiers, upgrades & slot specialisation (Part 3)
+
+    func testArmourTierBaseValuesFeedRawArmour() {
+        XCTAssertEqual(Balance.Armour.baseValue(.leather, slot: .head), 10)
+        XCTAssertEqual(Balance.Armour.baseValue(.steel, slot: .chest), 52)
+        XCTAssertEqual(Balance.Armour.baseValue(.iron, slot: .legs), 22)
+        // rawArmour sums each slot's equipped tier value.
+        let kit = Armour(head: .iron, chest: .iron, legs: .iron) // 30 + 38 + 22
+        XCTAssertEqual(kit.rawArmour, 90)
+        XCTAssertEqual(Armour(head: .scrap, chest: nil, legs: .scrap).rawArmour, 35) // 20 + 15
+    }
+
+    func testEquipSwapReturnsOldPieceAndUpgradeConsumesIt() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("scrapHelmet")
+        game.equip("scrapHelmet")
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.scrap)
+        XCTAssertTrue(game.inventory.isEmpty)
+
+        // Swapping in a different head piece returns the old one to the pack.
+        game.inventory.add("ironHelmet")
+        game.equip("ironHelmet")
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.iron)
+        XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 1) // old piece returned
+
+        // Upgrading the equipped piece consumes it in place (no return) + materials.
+        game.inventory.add("ironBar", count: 3)
+        XCTAssertTrue(game.canUpgradeArmour(.head))
+        game.upgradeArmour(.head)
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.steel)
+        XCTAssertEqual(game.inventory.count(of: "ironBar"), 0) // 3 - 3 exactly
+        XCTAssertEqual(game.inventory.count(of: "ironHelmet"), 0) // consumed, not returned
+    }
+
+    func testArmourUpgradeCostsDeductCorrectIngredient() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // scrap -> iron costs 4 iron.
+        game.inventory.add("scrapChestplate")
+        game.equip("scrapChestplate")
+        game.inventory.add("iron", count: 5)
+        XCTAssertTrue(game.canUpgradeArmour(.chest))
+        game.upgradeArmour(.chest)
+        XCTAssertEqual(game.player.armour.chest, ArmourMaterial.iron)
+        XCTAssertEqual(game.inventory.count(of: "iron"), 1) // 5 - 4
+        // Not enough materials gates the upgrade.
+        let poor = startInRoom(doors: 1, thenScript: [])
+        poor.inventory.add("scrapBoots")
+        poor.equip("scrapBoots")
+        poor.inventory.add("iron", count: 1)
+        XCTAssertFalse(poor.canUpgradeArmour(.legs))
+        poor.upgradeArmour(.legs)
+        XCTAssertEqual(poor.player.armour.legs, ArmourMaterial.scrap) // unchanged
+        XCTAssertEqual(poor.inventory.count(of: "iron"), 1)
+    }
+
+    func testHelmetPoisonResistByTier() {
+        XCTAssertEqual(Armour(head: .leather).poisonResistPercent, 10)
+        XCTAssertEqual(Armour(head: .scrap).poisonResistPercent, 20)
+        XCTAssertEqual(Armour(head: .iron).poisonResistPercent, 35)
+        XCTAssertEqual(Armour(head: .steel).poisonResistPercent, 50)
+        XCTAssertEqual(Armour().poisonResistPercent, 0)
+
+        // In combat: a steel helmet resists the ghoul's poison on a winning roll.
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("knife")
+        game.player.armour.head = .steel
+        game.startBossEncounter(.ghoul)
+        game.beginFight()
+        // knife idx0=40; ghoul counter raw 20; poison chance roll 1 (<=50, lands);
+        // resist roll 1 (<=50, resisted) -> no poison applied.
+        game.rng = ScriptedGameRandom([0, 20, 1, 1])
+        game.attack(with: "knife")
+        XCTAssertFalse(game.player.isPoisoned)
+    }
+
+    func testBootTierFloodNegation() {
+        XCTAssertTrue(Armour(legs: .iron).isFloodImmune)
+        XCTAssertTrue(Armour(legs: .steel).isFloodImmune)
+        XCTAssertFalse(Armour(legs: .leather).isFloodImmune)
+        XCTAssertEqual(Armour(legs: .leather).floodReduction, 0.5)
+
+        // Leather boots halve flood damage; iron boots negate it.
+        let leather = makeGame(script: [50, 100, 100, 4, 1, 12, 15]) // flooded, base damage 15
+        leather.startNewGame()
+        leather.player.armour.legs = .leather
+        // Re-enter a flooded room so the leather reduction applies.
+        leather.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 12, 15])
+        let before = leather.player.currentHealth
+        leather.takeDoor(1)
+        XCTAssertEqual(leather.roomModifier, .flooded)
+        XCTAssertEqual(leather.player.currentHealth, before - 8) // round(15 * 0.5) = 8
+    }
+
+    func testArmourSaveMigrationFromOldSummedModel() throws {
+        // A v3-style save with integer slot values migrates to nearest tiers.
+        let json = """
+        {"head": 30, "chest": 25, "legs": 0}
+        """
+        let armour = try JSONDecoder().decode(Armour.self, from: Data(json.utf8))
+        XCTAssertEqual(armour.head, ArmourMaterial.iron)   // 30 == iron head base
+        XCTAssertEqual(armour.chest, ArmourMaterial.scrap) // 25 == scrap chest base
+        XCTAssertNil(armour.legs)                          // 0 -> empty slot
+        // Round-trips back out as material tiers.
+        let reencoded = try JSONEncoder().encode(armour)
+        let again = try JSONDecoder().decode(Armour.self, from: reencoded)
+        XCTAssertEqual(again.head, ArmourMaterial.iron)
+        XCTAssertEqual(again.chest, ArmourMaterial.scrap)
+        XCTAssertNil(again.legs)
     }
 
     func testEnemyDifficultyRollBrackets() {
@@ -258,7 +367,7 @@ final class GameCoreTests: XCTestCase {
         // enemy counter-hit raw damage.
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("knife")
-        game.player.armour = Armour(head: 30, chest: 30, legs: 30) // raw 90 -> ~36% reduction
+        game.player.armour = Armour(head: .iron, chest: .iron, legs: .iron) // raw 90 -> ~36% reduction
         game.depth = 0 // isolate from depth scaling
 
         // Force an encounter: difficulty roll 150 -> easy; jitter 0 -> HP 75.
@@ -514,12 +623,12 @@ final class GameCoreTests: XCTestCase {
         let game = makeGame(script: [50, 100, 100, 4, 1, 12, 15])
         game.startNewGame() // takes 15 with no boots
         XCTAssertEqual(game.player.currentHealth, 85)
-        // Now give boots and walk into another flooded room.
-        game.player.armour.legs = 15
+        // Now give iron boots (flood-immune) and walk into another flooded room.
+        game.player.armour.legs = .iron
         game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 12, 15])
         game.takeDoor(1)
         XCTAssertEqual(game.roomModifier, .flooded)
-        XCTAssertEqual(game.player.currentHealth, 85) // unchanged — boots kept it dry
+        XCTAssertEqual(game.player.currentHealth, 85) // unchanged — iron boots kept it dry
     }
 
     // MARK: - Hunger / thirst decay
@@ -566,6 +675,123 @@ final class GameCoreTests: XCTestCase {
         game.craft("scrapHelmet")
         XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 2) // unchanged
         XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 0)
+    }
+
+    // MARK: - New crafting recipes (Part 5)
+
+    func testNewArmourAndMaterialRecipesDeductCorrectly() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Scrap Chestplate: 8 scrapmetal.
+        game.inventory.add("scrapmetal", count: 8)
+        XCTAssertTrue(game.canCraft("scrapChestplate"))
+        game.craft("scrapChestplate")
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
+        XCTAssertEqual(game.inventory.count(of: "scrapChestplate"), 1)
+
+        // Iron Bar: 3 iron + 2 scrapmetal.
+        let bar = startInRoom(doors: 1, thenScript: [])
+        bar.inventory.add("iron", count: 3)
+        bar.inventory.add("scrapmetal", count: 2)
+        XCTAssertTrue(bar.canCraft("ironBar"))
+        bar.craft("ironBar")
+        XCTAssertEqual(bar.inventory.count(of: "iron"), 0)
+        XCTAssertEqual(bar.inventory.count(of: "scrapmetal"), 0)
+        XCTAssertEqual(bar.inventory.count(of: "ironBar"), 1)
+
+        // Torch: 1 branch + 1 scrapmetal → a fresh weapon instance.
+        let torch = startInRoom(doors: 1, thenScript: [])
+        torch.inventory.add("branch")
+        torch.inventory.add("scrapmetal")
+        XCTAssertTrue(torch.canCraft("torch"))
+        torch.craft("torch")
+        XCTAssertEqual(torch.inventory.count(of: "torch"), 1)
+        XCTAssertFalse(torch.inventory.has("branch"))
+    }
+
+    func testCraftableHealingBandageAndMedkit() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Bandage: 2 scrapmetal + 1 waterbottle.
+        game.inventory.add("scrapmetal", count: 2)
+        game.inventory.add("waterbottle")
+        XCTAssertTrue(game.canCraft("bandage"))
+        game.craft("bandage")
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
+        XCTAssertEqual(game.inventory.count(of: "waterbottle"), 0)
+        XCTAssertEqual(game.inventory.count(of: "bandage"), 1)
+
+        // Medkit: 2 bandage + 1 medicine.
+        game.inventory.add("bandage") // now 2 bandages
+        game.inventory.add("medicine")
+        XCTAssertTrue(game.canCraft("medkit"))
+        game.craft("medkit")
+        XCTAssertEqual(game.inventory.count(of: "bandage"), 0)
+        XCTAssertEqual(game.inventory.count(of: "medicine"), 0)
+        XCTAssertEqual(game.inventory.count(of: "medkit"), 1)
+    }
+
+    func testHardenedBladeBoostsMaxDurability() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("sword") // 30/30
+        game.inventory.add("ironBar")
+        XCTAssertTrue(game.canHardenBlade("sword"))
+        game.hardenBlade("sword")
+        // 30 * 1.5 = 45 max, with the +15 delta credited to current durability.
+        let inst = game.inventory.instances(of: "sword").first
+        XCTAssertEqual(inst?.maxDurability, 45)
+        XCTAssertEqual(inst?.durability, 45)
+        XCTAssertEqual(game.inventory.count(of: "ironBar"), 0) // consumed
+        // The torch (no durability) can't be hardened.
+        game.inventory.add("torch")
+        game.inventory.add("ironBar")
+        XCTAssertFalse(game.canHardenBlade("torch"))
+    }
+
+    func testPharmacyRoomExistsAndIsHealthDense() {
+        let table = GameData.load().rooms["Pharmacy"]
+        XCTAssertNotNil(table)
+        XCTAssertTrue(table?.contains("medkit") ?? false)
+        XCTAssertTrue(table?.contains("bandage") ?? false)
+    }
+
+    // MARK: - Tabbed list sort (Part 1)
+
+    func testItemsByQuantitySortDescendingWithAlphabeticalTiebreak() {
+        var inv = Inventory()
+        inv.add("tomato", count: 1)
+        inv.add("carrot", count: 3)
+        inv.add("chocolate", count: 3) // ties with carrot on count
+        inv.add("steak", count: 2)
+        let order = inv.itemsByQuantity(in: .consumable).map(\.id)
+        // 3s first (Carrot < Chocolate alphabetically), then 2 (Steak), then 1 (Tomato).
+        XCTAssertEqual(order, ["carrot", "chocolate", "steak", "tomato"])
+    }
+
+    // MARK: - Workbench shared logic across access points (Part 2)
+
+    func testWorkbenchFunctionsShareLogicRegardlessOfAccessPoint() {
+        // The same craft/convert/breakdown functions are reachable whether the
+        // player owns a grindstone (room), or is at a merchant/scavenger — the
+        // logic doesn't fork per access point. Exercise each with no grindstone
+        // and while parked at a trader.
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.screen = .trader
+        game.traderKind = .scavenger
+        XCTAssertFalse(game.hasGrindstone)
+
+        // Craft.
+        game.inventory.add("scrapmetal", count: 5)
+        game.craft("scrapHelmet")
+        XCTAssertEqual(game.inventory.count(of: "scrapHelmet"), 1)
+
+        // Convert.
+        game.inventory.add("knife")
+        game.inventory.add("scrapmetal", count: 4)
+        game.convertWeapon("knife")
+        XCTAssertEqual(game.inventory.count(of: "sword"), 1)
+
+        // Breakdown — no grindstone, works because access is the gate, not this.
+        game.breakdown("sword")
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 5) // sword -> 5 scrap
     }
 
     // MARK: - Loot money brackets
@@ -644,12 +870,12 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Breakdown
 
-    func testBreakdownNeedsGrindstone() {
+    func testBreakdownYieldsScrapWithoutAGrindstoneGate() {
+        // Part 2: breakdown is a Workbench function — access is gated by the UI
+        // (own a grindstone, or free at a trader), so the function itself no
+        // longer re-checks for a grindstone.
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("sword")
-        game.breakdown("sword")
-        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
-        game.inventory.add("grindstone")
         game.breakdown("sword")
         XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 5)
         XCTAssertEqual(game.inventory.count(of: "sword"), 0)
@@ -657,7 +883,6 @@ final class GameCoreTests: XCTestCase {
 
     func testTorchAndBranchCannotBeBrokenDown() {
         let game = startInRoom(doors: 1, thenScript: [])
-        game.inventory.add("grindstone")
         game.inventory.add("torch")
         game.inventory.add("branch")
         game.breakdown("torch")
@@ -669,15 +894,15 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Equip
 
-    func testEquippingArmourAddsToSlotAndConsumesPiece() {
+    func testEquippingArmourSetsSlotTierAndConsumesPiece() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("scrapHelmet")
         game.inventory.add("scrapBoots")
         game.equip("scrapHelmet")
         game.equip("scrapBoots")
-        XCTAssertEqual(game.player.armour.head, 20)
-        XCTAssertEqual(game.player.armour.legs, 15)
-        XCTAssertEqual(game.player.armour.rawArmour, 35)
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.scrap)
+        XCTAssertEqual(game.player.armour.legs, ArmourMaterial.scrap)
+        XCTAssertEqual(game.player.armour.rawArmour, 35) // 20 + 15
         XCTAssertEqual(game.player.armour.reductionPercent, 19) // 0.85*35/155 -> ~19%
         XCTAssertTrue(game.inventory.isEmpty)
     }
@@ -866,7 +1091,7 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("knife", count: 2)
         game.inventory.add("scrapmetal", count: 4)
         game.player.money = 123
-        game.player.armour.head = 20
+        game.player.armour.head = .iron
         // New state: depth, boss sequence, a worn weapon, active poison.
         game.depth = 14
         game.nextBossDepth = 100
@@ -883,7 +1108,7 @@ final class GameCoreTests: XCTestCase {
 
         XCTAssertTrue(game.loadGame(slot: 1))
         XCTAssertEqual(game.player.money, 123)
-        XCTAssertEqual(game.player.armour.head, 20)
+        XCTAssertEqual(game.player.armour.head, ArmourMaterial.iron)
         XCTAssertEqual(game.inventory.count(of: "knife"), 2)
         XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 4)
         XCTAssertEqual(game.roomName, "Kitchen")
