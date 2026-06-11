@@ -24,12 +24,14 @@ public extension GameState {
         for (ingredientID, count) in ingredients {
             inventory.remove(ingredientID, count: count)
         }
-        inventory.add(recipeID)
+        let yield = Balance.Crafting.outputCount(for: recipeID)
+        inventory.add(recipeID, count: yield)
         let used = ingredients
             .sorted { $0.key < $1.key }
             .map { "\($0.value)× \(ItemCatalog.label($0.key))" }
             .joined(separator: ", ")
-        say("You crafted a \(ItemCatalog.label(recipeID)) using \(used).", .reward)
+        let made = yield > 1 ? "\(yield)× \(ItemCatalog.label(recipeID))" : "a \(ItemCatalog.label(recipeID))"
+        say("You crafted \(made) using \(used).", .reward)
     }
 
     // MARK: - Breakdown (a Workbench function — access is gated at the menu)
@@ -76,6 +78,7 @@ public extension GameState {
             say("You swapped your \(ItemCatalog.label(oldID)) for the \(ItemCatalog.label(armourID)) — the old piece goes back in your pack.", .info)
         }
         player.armour.setMaterial(info.material, in: info.slot)
+        player.armour.refillDurability(in: info.slot) // fresh piece at full durability
         say("You equipped the \(ItemCatalog.label(armourID)). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
     }
 
@@ -110,6 +113,7 @@ public extension GameState {
         }
         inventory.remove(cost.ingredient, count: cost.count)
         player.armour.setMaterial(next, in: slot)
+        player.armour.refillDurability(in: slot) // upgraded piece starts at full
         let newID = ArmourCatalog.id(slot: slot, material: next)
         say("You reforged your \(slot.displayName.lowercased()) armour into a \(ItemCatalog.label(newID)) using \(cost.count)× \(ItemCatalog.label(cost.ingredient)). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
     }

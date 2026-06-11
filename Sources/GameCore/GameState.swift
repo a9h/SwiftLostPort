@@ -35,6 +35,10 @@ public struct LogEntry: Identifiable, Equatable, Sendable {
 public final class GameState: ObservableObject {
     public let data: GameData
     var rng: GameRandom
+    /// A separate RNG for flavour-text selection (Part 5). Kept apart from the
+    /// gameplay `rng` so expanding the prompt pools never shifts any gameplay
+    /// sequence (and never disturbs the scripted tests).
+    var promptRng: GameRandom = SystemGameRandom()
     let saveStore: SaveStore
 
     @Published public internal(set) var screen: Screen = .title
@@ -89,6 +93,12 @@ public final class GameState: ObservableObject {
     func say(_ text: String, _ kind: LogEntry.Kind = .narration) {
         log.append(LogEntry(text, kind))
         if log.count > 80 { log.removeFirst(log.count - 80) }
+    }
+
+    /// Picks a random flavour variant for an event (Part 5), substituting any
+    /// `{token}` placeholders. Uses the dedicated flavour RNG.
+    func flavour(_ event: PromptEvent, _ tokens: [String: String] = [:]) -> String {
+        data.prompts.pick(event, using: &promptRng, replacing: tokens)
     }
 
     // MARK: - Run lifecycle
@@ -171,7 +181,7 @@ public final class GameState: ObservableObject {
             let darkBonus = roomName == "Tunnel" ? Balance.RoomModifiers.tunnelDarkBonus : 0
             roomModifier = RoomModifier.roll(rng.int(in: 1...100), depth: depth, darkBonus: darkBonus)
             screen = .room
-            say("You find yourself in a \(roomName) with \(doors) door\(doors == 1 ? "" : "s")", .narration)
+            say(flavour(.roomEntry, ["room": roomName]), .narration)
             applyRoomEntryEffects()
         }
     }
@@ -210,13 +220,13 @@ public final class GameState: ObservableObject {
         default: lucky = rng.int(in: 1...51)
         }
         guard lucky < 33 else {
-            say("Looks like you didn't find anything, unlucky.", .info)
+            say(flavour(.lootFailure), .info)
             return
         }
 
         let table = data.rooms[roomName] ?? []
         guard !table.isEmpty else {
-            say("Looks like you didn't find anything, unlucky.", .info)
+            say(flavour(.lootFailure), .info)
             return
         }
         let itemID = rng.choice(table)
@@ -234,12 +244,7 @@ public final class GameState: ObservableObject {
         inventory.add(itemID)
         player.money += money
 
-        let flavour = rng.choice([
-            "You peeked in a cupboard",
-            "You looked in a drawer",
-            "You opened a cabinet",
-        ])
-        var message = "\(flavour) and found \(ItemCatalog.label(itemID))"
+        var message = flavour(.lootSuccess, ["item": ItemCatalog.label(itemID)])
         if money > 0 { message += " & £\(money)!" }
         say(message, .reward)
     }

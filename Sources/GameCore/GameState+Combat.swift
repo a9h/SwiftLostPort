@@ -13,7 +13,7 @@ public extension GameState {
         enemy = newEnemy
         encounterPhase = .choosing
         screen = .encounter
-        say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
+        say(flavour(.enemyEncounter), .narration)
         say("The enemy is \(newEnemy.displayName) with \(newEnemy.maxHP) health \(newEnemy.emoji)", .combat)
     }
 
@@ -39,6 +39,7 @@ public extension GameState {
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
         rollPoison(from: enemy)
+        wearArmour() // Part 2b: every hit the player takes wears 1–2 slots.
         return damage
     }
 
@@ -47,14 +48,14 @@ public extension GameState {
     func run() {
         guard screen == .encounter, enemy != nil else { return }
         while rng.int(in: 1...100) < 30 {
-            let damage = enemyHitsPlayer()
-            say("You failed to escape and took \(damage) damage!", .combat)
+            _ = enemyHitsPlayer() // applies the hit; flavour omits the number
+            say(flavour(.escapeFailure), .combat)
             if player.currentHealth <= 0 {
                 gameOver("The enemy caught you as you tried to escape")
                 return
             }
         }
-        say("You escaped to another room! 🏃", .narration)
+        say(flavour(.escapeSuccess), .narration)
         previousEncounter = true
         generateRoom()
     }
@@ -119,7 +120,7 @@ public extension GameState {
             } else {
                 let damage = rng.choice(damages) + inventory.upgradeBonus(of: weaponID)
                 enemy?.hp -= damage
-                say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
+                say(flavour(.playerHit, ["enemy": enemy?.displayName ?? "the enemy", "damage": "\(damage)"]), .combat)
                 if inventory.degradeWeapon(weaponID) == true {
                     say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
                 }
@@ -159,7 +160,7 @@ public extension GameState {
             say("The Warlord strikes twice — \(d1) then \(d2)! You have \(player.currentHealth) health left", .combat)
         } else {
             let damage = enemyHitsPlayer()
-            say("The enemy hit you back for \(damage) — you have \(player.currentHealth) health remaining", .combat)
+            say(flavour(.playerTakesHit, ["damage": "\(damage)"]), .combat)
         }
         checkCombatDeath()
     }

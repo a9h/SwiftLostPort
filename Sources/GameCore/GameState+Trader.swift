@@ -54,11 +54,11 @@ public extension GameState {
         if rng.int(in: 1...100) <= Balance.Scavenger.chancePercent {
             traderKind = .scavenger
             shopStock = nil
-            say("A hunched scavenger 🪤 eyes your pack — they don't sell, but they'll buy what you've scrounged. Try 'sell', or 'games' to gamble.", .narration)
+            say("🪤 \(flavour(.scavenger))", .narration)
         } else {
             traderKind = .merchant
             loadShop()
-            say("You have come across a wild trader, who is willing to sell items to you for a fee. The trader will also play games with you...", .narration)
+            say("🧙 \(flavour(.merchant))", .narration)
         }
     }
 
