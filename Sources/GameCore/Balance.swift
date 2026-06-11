@@ -4,7 +4,7 @@ import Foundation
 /// Logic elsewhere should reference these rather than hard-coding magic numbers.
 public enum Balance {
 
-    // MARK: - Armour (A1: diminishing-returns soft cap)
+    // MARK: - Armour (A1: diminishing-returns soft cap; Part 3: tiers + slots)
 
     public enum Armour {
         /// Max fraction of damage that can ever be removed (asymptote, never reached).
@@ -13,6 +13,59 @@ public enum Balance {
         public static let scale = 120.0
         /// Flat HP removed from every hit before the percentage is applied.
         public static let flat = 2
+
+        // MARK: Tier base values (Part 3a)
+
+        /// Per-slot, per-tier base reduction value feeding `rawArmour`. Chest is
+        /// the backbone (highest values); boots the lightest.
+        public static let tierBaseValue: [ArmourSlot: [ArmourMaterial: Int]] = [
+            .head:  [.leather: 10, .scrap: 20, .iron: 30, .steel: 42],
+            .chest: [.leather: 12, .scrap: 25, .iron: 38, .steel: 52],
+            .legs:  [.leather: 8,  .scrap: 15, .iron: 22, .steel: 30],
+        ]
+
+        public static func baseValue(_ material: ArmourMaterial, slot: ArmourSlot) -> Int {
+            tierBaseValue[slot]?[material] ?? 0
+        }
+
+        /// Maps an old save's summed slot integer to the nearest tier by base
+        /// value (ties resolve to the lower tier). Used by save migration (3d).
+        public static func nearestTier(forRaw value: Int, slot: ArmourSlot) -> ArmourMaterial {
+            let table = tierBaseValue[slot] ?? [:]
+            return ArmourMaterial.allCases.min { a, b in
+                let da = abs((table[a] ?? 0) - value)
+                let db = abs((table[b] ?? 0) - value)
+                if da != db { return da < db }
+                return a.tierIndex < b.tierIndex
+            } ?? .leather
+        }
+
+        // MARK: Upgrade costs (Part 3b)
+
+        /// What it costs (ingredient + count) to reach a given tier from the one
+        /// below it, consuming the current piece in place. Leather is the base
+        /// tier and so has no upgrade-in cost.
+        public static func upgradeCost(to material: ArmourMaterial) -> (ingredient: String, count: Int)? {
+            switch material {
+            case .leather: return nil
+            case .scrap:   return ("scrapmetal", 5)
+            case .iron:    return ("iron", 4)
+            case .steel:   return ("ironBar", 3)
+            }
+        }
+
+        // MARK: Slot specialisation (Part 3c)
+
+        /// Helmet poison-resist chance by tier (when an enemy would poison you).
+        public static let poisonResistPercent: [ArmourMaterial: Int] = [
+            .leather: 10, .scrap: 20, .iron: 35, .steel: 50,
+        ]
+
+        /// Fraction of flooded-room damage the boots negate by tier. Leather
+        /// halves it, scrap takes most, iron/steel make you immune.
+        public static let floodReduction: [ArmourMaterial: Double] = [
+            .leather: 0.5, .scrap: 0.75, .iron: 1.0, .steel: 1.0,
+        ]
     }
 
     // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
@@ -189,8 +242,10 @@ public enum Balance {
             "fork": 8, "branch": 8, "knife": 16, "bat": 20, "shovel": 20,
             "crowbar": 20, "sword": 40, "longsword": 60,
             // armour
+            "leatherCap": 8, "leatherVest": 9, "leatherBoots": 6,
             "scrapHelmet": 18, "scrapBoots": 12, "scrapChestplate": 20,
             "ironHelmet": 30, "ironBoots": 25, "ironChestplate": 40,
+            "steelHelmet": 45, "steelBoots": 40, "steelChestplate": 60,
             // tools
             "grindstone": 50,
         ]

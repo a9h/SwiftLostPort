@@ -32,7 +32,7 @@ public extension GameState {
         say("You crafted a \(ItemCatalog.label(recipeID)) using \(used).", .reward)
     }
 
-    // MARK: - Breakdown (needs a grindstone)
+    // MARK: - Breakdown (a Workbench function — access is gated at the menu)
 
     var hasGrindstone: Bool { inventory.has("grindstone") }
 
@@ -42,11 +42,10 @@ public extension GameState {
         inventory.items(in: .weapon)
     }
 
+    /// Scrap a weapon. Reachable only through the Workbench, whose access points
+    /// (owned grindstone, or free at either trader) are gated by the UI — so the
+    /// function itself no longer re-checks for a grindstone (Part 2).
     func breakdown(_ weaponID: String) {
-        guard hasGrindstone else {
-            say("You do not have a grindstone!", .info)
-            return
-        }
         guard inventory.has(weaponID) else { return }
         guard let yield = data.breakdown[weaponID] else {
             say("You cannot breakdown \(ItemCatalog.name(weaponID)) into metal scrap!", .info)
@@ -57,30 +56,90 @@ public extension GameState {
         say("You ground the \(ItemCatalog.label(weaponID)) down into \(yield) 🔩 scrap metal.", .reward)
     }
 
-    // MARK: - Equipping armour
+    // MARK: - Equipping armour (Part 3a: one piece per slot, swaps return the old)
 
     var ownedArmourItems: [(id: String, count: Int)] {
         inventory.items(in: .armor)
     }
 
-    /// Adds the piece's value to its slot and consumes the item.
+    /// Equips a found/crafted piece into its slot. An empty slot equips free; a
+    /// filled slot is swapped, returning the old piece to the inventory.
     func equip(_ armourID: String) {
-        guard inventory.has(armourID) else { return }
-        if let value = data.stats.armourHead[armourID] {
-            player.armour.head += value
-            inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — head armour is now \(player.armour.head). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
-        } else if let value = data.stats.armourChest[armourID] {
-            player.armour.chest += value
-            inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — chest armour is now \(player.armour.chest). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
-        } else if let value = data.stats.armourFeet[armourID] {
-            player.armour.legs += value
-            inventory.remove(armourID)
-            say("You equipped the \(ItemCatalog.label(armourID)) — leg armour is now \(player.armour.legs). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
-        } else {
+        guard inventory.has(armourID), let info = ArmourCatalog.info(armourID) else {
             say("You can't equip that.", .info)
+            return
         }
+        inventory.remove(armourID)
+        if let existing = player.armour.material(in: info.slot) {
+            let oldID = ArmourCatalog.id(slot: info.slot, material: existing)
+            inventory.add(oldID)
+            say("You swapped your \(ItemCatalog.label(oldID)) for the \(ItemCatalog.label(armourID)) — the old piece goes back in your pack.", .info)
+        }
+        player.armour.setMaterial(info.material, in: info.slot)
+        say("You equipped the \(ItemCatalog.label(armourID)). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
+    }
+
+    // MARK: - Armour upgrades (Part 3b: a Workbench function)
+
+    /// Slots whose equipped piece can still be reforged up a tier.
+    var upgradeableArmourSlots: [ArmourSlot] {
+        ArmourSlot.allCases.filter { slot in
+            guard let current = player.armour.material(in: slot) else { return false }
+            return current.next != nil
+        }
+    }
+
+    func canUpgradeArmour(_ slot: ArmourSlot) -> Bool {
+        guard let current = player.armour.material(in: slot), let next = current.next,
+              let cost = Balance.Armour.upgradeCost(to: next) else { return false }
+        return inventory.count(of: cost.ingredient) >= cost.count
+    }
+
+    /// Reforges a slot's piece into the next tier, consuming the current piece
+    /// in place plus the tier's materials (distinct from a swap — nothing is
+    /// returned to the inventory).
+    func upgradeArmour(_ slot: ArmourSlot) {
+        guard let current = player.armour.material(in: slot), let next = current.next,
+              let cost = Balance.Armour.upgradeCost(to: next) else {
+            say("There's nothing here to upgrade.", .info)
+            return
+        }
+        guard inventory.count(of: cost.ingredient) >= cost.count else {
+            say("You need \(cost.count)× \(ItemCatalog.label(cost.ingredient)) to forge \(next.displayName) \(slot.displayName.lowercased()) armour.", .info)
+            return
+        }
+        inventory.remove(cost.ingredient, count: cost.count)
+        player.armour.setMaterial(next, in: slot)
+        let newID = ArmourCatalog.id(slot: slot, material: next)
+        say("You reforged your \(slot.displayName.lowercased()) armour into a \(ItemCatalog.label(newID)) using \(cost.count)× \(ItemCatalog.label(cost.ingredient)). Damage reduction: \(player.armour.reductionPercent)%.", .reward)
+    }
+
+    // MARK: - Hardened Blade (Part 5: a Workbench function)
+
+    /// Weapons whose active instance can take a hardened-blade boost (excludes
+    /// the durability-less torch).
+    var hardenableWeapons: [(id: String, count: Int)] {
+        inventory.items(in: .weapon).filter { inventory.activeMaxDurability(of: $0.id) != nil }
+    }
+
+    func canHardenBlade(_ weaponID: String) -> Bool {
+        inventory.count(of: "ironBar") >= 1 && inventory.activeMaxDurability(of: weaponID) != nil
+    }
+
+    /// Spends 1 ironBar to raise the active instance's max durability by the
+    /// hardened multiplier (Balance.Durability.hardenedMultiplier).
+    func hardenBlade(_ weaponID: String) {
+        guard inventory.count(of: "ironBar") >= 1 else {
+            say("You need 1× \(ItemCatalog.label("ironBar")) to harden a blade.", .info)
+            return
+        }
+        guard inventory.hardenWeapon(weaponID, multiplier: Balance.Durability.hardenedMultiplier) else {
+            say("You can't harden that.", .info)
+            return
+        }
+        inventory.remove("ironBar")
+        let maxD = inventory.activeMaxDurability(of: weaponID) ?? 0
+        say("You hardened your \(ItemCatalog.label(weaponID)) with an iron bar — it now lasts up to \(maxD) hits.", .reward)
     }
 
     // MARK: - Admin / debug (hidden panel)

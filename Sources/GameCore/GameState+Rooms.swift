@@ -31,14 +31,20 @@ public extension GameState {
             }
 
         case .flooded:
-            // Boots (any legs armour) keep you dry; otherwise environmental,
-            // NON-armour-reduced water damage and a thirst note.
-            if player.armour.legs > 0 {
-                say("🌊 You wade through the flood — good thing you have boots.", .info)
+            // Boots negate flooded damage by tier (Part 3c): iron/steel keep you
+            // bone dry, leather/scrap only soften it. Environmental damage is
+            // NOT armour-reduced — the boot tier is the only mitigation.
+            if player.armour.isFloodImmune {
+                say("🌊 You wade through the flood — your boots keep you bone dry.", .info)
             } else {
-                let damage = rng.int(in: Balance.RoomModifiers.floodedDamageRange)
+                let base = rng.int(in: Balance.RoomModifiers.floodedDamageRange)
+                let damage = max(1, Int((Double(base) * (1.0 - player.armour.floodReduction)).rounded()))
                 player.currentHealth -= damage
-                say("🌊 Freezing water soaks you for \(damage) damage. At least it's wet.", .warning)
+                if player.armour.floodReduction > 0 {
+                    say("🌊 Cold water seeps past your boots for \(damage) damage. Could've been worse.", .warning)
+                } else {
+                    say("🌊 Freezing water soaks you for \(damage) damage. At least it's wet.", .warning)
+                }
                 if player.currentHealth <= 0 {
                     gameOver("You went under in a flooded room")
                 }

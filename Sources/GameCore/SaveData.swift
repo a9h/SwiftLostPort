@@ -7,8 +7,10 @@ import Foundation
 public struct SaveData: Codable, Equatable, Sendable {
     /// Bumped whenever the save shape changes. v1 = original; v2 = first update
     /// (depth, durability, status effects, room modifier); v3 = boss sequence
-    /// (nextBossDepth/bossSequenceIndex/maxDamageFlag) + 1:2 ratio.
-    public static let currentVersion = 3
+    /// (nextBossDepth/bossSequenceIndex/maxDamageFlag) + 1:2 ratio; v4 = armour
+    /// rework (one piece per slot with material tiers — old summed-int slots
+    /// migrate to the nearest tier, handled in `Armour`'s Codable).
+    public static let currentVersion = 4
 
     public var version: Int
     public var player: Player

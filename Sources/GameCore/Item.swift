@@ -73,13 +73,21 @@ public enum ItemCatalog {
         add("pills", .health, "💊", "Pills")
         add("bandage", .health, "🩹", "Bandage")
         add("medicine", .health, "💉", "Medicine")
-        // Armour
+        // Armour — head
+        add("leatherCap", .armor, "🧢", "Leather Cap")
         add("scrapHelmet", .armor, "🪖", "Scrap Helmet")
         add("ironHelmet", .armor, "⛑️", "Iron Helmet")
+        add("steelHelmet", .armor, "🛡️", "Steel Helmet")
+        // Armour — chest
+        add("leatherVest", .armor, "🧥", "Leather Vest")
         add("scrapChestplate", .armor, "🦺", "Scrap Chestplate")
         add("ironChestplate", .armor, "🦺", "Iron Chestplate")
+        add("steelChestplate", .armor, "🛡️", "Steel Chestplate")
+        // Armour — legs
+        add("leatherBoots", .armor, "🥾", "Leather Boots")
         add("scrapBoots", .armor, "👢", "Scrap Boots")
         add("ironBoots", .armor, "👢", "Iron Boots")
+        add("steelBoots", .armor, "👢", "Steel Boots")
         // Tools
         add("grindstone", .tool, "🪨", "Grindstone")
         add("hardenedBlade", .tool, "🪒", "Hardened Blade")

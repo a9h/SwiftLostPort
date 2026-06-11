@@ -173,6 +173,34 @@ public struct Inventory: Codable, Equatable, Sendable {
         return true
     }
 
+    /// The active instance's current max durability (nil for untracked weapons
+    /// like the torch, or if none owned). Lets callers gate the hardened blade.
+    public func activeMaxDurability(of itemID: String) -> Int? {
+        guard let idx = activeWeaponIndex(of: itemID) else { return nil }
+        return weapons[idx].maxDurability
+    }
+
+    /// Hardened Blade (Part 5): boosts the active instance's max durability by
+    /// `multiplier`, crediting the same delta to its current durability so the
+    /// boost is felt immediately. Returns false if the active instance isn't
+    /// durability-tracked (e.g. the torch) or none is owned.
+    @discardableResult
+    public mutating func hardenWeapon(_ itemID: String, multiplier: Double) -> Bool {
+        guard let idx = activeWeaponIndex(of: itemID),
+              let oldMax = weapons[idx].maxDurability,
+              let current = weapons[idx].durability else { return false }
+        let newMax = Int((Double(oldMax) * multiplier).rounded())
+        guard newMax > oldMax else { return false }
+        weapons[idx] = WeaponInstance(
+            id: weapons[idx].id,
+            durability: current + (newMax - oldMax),
+            maxDurability: newMax,
+            upgradeLevel: weapons[idx].upgradeLevel,
+            instanceID: weapons[idx].instanceID
+        )
+        return true
+    }
+
     /// Wears the active (most-worn) tracked instance of a type by one hit.
     /// Returns true if it broke (and was removed), false if it merely wore,
     /// nil if there's no durability-tracked instance (e.g. the torch).
@@ -202,6 +230,18 @@ public struct Inventory: Codable, Equatable, Sendable {
             .filter { ItemCatalog.info($0.key).category == category }
             .sorted { $0.key < $1.key }
             .map { (id: $0.key, count: $0.value) }
+    }
+
+    /// One category page sorted for the tabbed list UI (Part 1): most-owned
+    /// first, ties broken alphabetically by display name for stable ordering.
+    /// For weapons (no simple quantity) this groups by type, most-owned type
+    /// first — within a type, instances are shown upgrade/durability-first by
+    /// `instances(of:)`, which sorts durability descending.
+    public func itemsByQuantity(in category: ItemCategory) -> [(id: String, count: Int)] {
+        items(in: category).sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return ItemCatalog.name(lhs.id) < ItemCatalog.name(rhs.id)
+        }
     }
 
     /// All weapon instances of a type, freshest first (for durability display).
