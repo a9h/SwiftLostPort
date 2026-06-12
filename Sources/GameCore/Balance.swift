@@ -362,8 +362,10 @@ public enum Balance {
     // MARK: - Trader spawning (Lost update Part 2)
 
     public enum Trader {
-        /// Overall chance any given (non-boss, non-enemy) room is a trader room.
-        public static let overallChancePercent = 40
+        /// Trader rarity (restored to the original): a trader appears when
+        /// `randint(1, rarityRollMax) < rarityThreshold` (~12% per room).
+        public static let rarityRollMax = 170
+        public static let rarityThreshold = 20
         /// Type weights *within* a trader room. Must sum to 100.
         public static let merchantWeight = 60
         public static let medicWeight = 25
