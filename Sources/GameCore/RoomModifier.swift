@@ -36,12 +36,19 @@ public enum RoomModifier: String, Codable, Sendable {
         return .none
     }
 
-    /// Depth-aware roll (Part 4b): picks the early or late chance set.
-    public static func roll(_ value: Int, depth: Int, darkBonus: Int = 0) -> RoomModifier {
-        roll(value,
-             trap: Balance.RoomModifiers.trapChance(depth: depth),
-             dark: Balance.RoomModifiers.darkChance(depth: depth),
-             flooded: Balance.RoomModifiers.floodedChance(depth: depth),
-             darkBonus: darkBonus)
+    /// Depth-aware roll (Part 4b): picks the early or late chance set. Traps are
+    /// additionally gated before `trapMinRoom` (Lost update Part 6): below it a
+    /// rolled trap becomes a plain room, leaving dark and flooded exactly where
+    /// they sit (their bands and probabilities are unaffected).
+    public static func roll(_ value: Int, depth: Int, roomsExplored: Int, darkBonus: Int = 0) -> RoomModifier {
+        let result = roll(value,
+                          trap: Balance.RoomModifiers.trapChance(depth: depth),
+                          dark: Balance.RoomModifiers.darkChance(depth: depth),
+                          flooded: Balance.RoomModifiers.floodedChance(depth: depth),
+                          darkBonus: darkBonus)
+        if result == .trap && roomsExplored < Balance.RoomModifiers.trapMinRoom {
+            return .none
+        }
+        return result
     }
 }

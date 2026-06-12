@@ -1,0 +1,114 @@
+{
+  "roomEntry": [
+    "You find yourself in the {room}.",
+    "The floorboards creak as you step into the {room}.",
+    "You squeeze through a gap into the {room}.",
+    "Dust hangs in the air of the {room}.",
+    "Something smells off in this {room}.",
+    "You catch your breath and take in the {room}.",
+    "Not much to look at, but it's a {room}."
+  ],
+  "lootSuccess": [
+    "You rifle through the debris and pull out {item}.",
+    "Behind a broken panel — {item}.",
+    "Wedged under something heavy, {item}.",
+    "Your hand closes around {item} in the dark.",
+    "Buried under rubble, {item}.",
+    "Not bad. {item}, just sitting there."
+  ],
+  "lootFailure": [
+    "Nothing worth taking here.",
+    "Just dust and disappointment.",
+    "You search thoroughly. Nothing.",
+    "Whatever was here, someone got to it first.",
+    "Empty. Figures.",
+    "You turn the place over. Not a thing."
+  ],
+  "enemyEncounter": [
+    "Something shifts in the shadows ahead.",
+    "You freeze — something's in here with you.",
+    "A sound behind you; you spin around.",
+    "You almost walk straight into it.",
+    "The air goes cold. You're not alone.",
+    "You hear breathing. It isn't yours."
+  ],
+  "escapeSuccess": [
+    "You bolt and don't look back.",
+    "You find a gap and take it.",
+    "Legs carry you out before your brain catches up.",
+    "Close. Too close. But you're out.",
+    "You scramble free and keep moving.",
+    "Gone. Just like that."
+  ],
+  "escapeFailure": [
+    "No good — it's right behind you.",
+    "You stumble. It catches you.",
+    "Nowhere to run. Not yet.",
+    "You almost make it. Almost.",
+    "It cuts you off. You take the hit.",
+    "The exit's blocked. You eat the damage."
+  ],
+  "playerHit": [
+    "You connect. {enemy} takes {damage} damage.",
+    "Solid hit. {enemy} stumbles back — {damage}.",
+    "You land it clean. {damage} damage.",
+    "{damage} damage. {enemy} doesn't look happy.",
+    "You swing true. {damage} to {enemy}.",
+    "That one hurt it. {damage} damage dealt."
+  ],
+  "playerTakesHit": [
+    "It hits you for {damage}. That stings.",
+    "{damage} damage. You stagger but stay up.",
+    "You don't dodge fast enough. {damage} taken.",
+    "Glancing blow — still {damage} damage.",
+    "It catches you clean. {damage} HP gone.",
+    "{damage} damage. Keep it together."
+  ],
+  "trapRoom": [
+    "The floor shifts — a trap. {damage} damage.",
+    "Something snaps underfoot. {damage} damage.",
+    "Too late to dodge it. {damage} damage.",
+    "A mechanism clicks. Pain. {damage} damage.",
+    "You walk right into it. {damage} damage.",
+    "The ceiling drops something heavy. {damage} damage."
+  ],
+  "darkRoom": [
+    "Pitch black. You can't see a thing.",
+    "No light in here at all.",
+    "Complete darkness. You'd need a torch to search this.",
+    "You can barely see your hand in front of your face.",
+    "Dark as anything. Not looting without a light.",
+    "The dark in here is total."
+  ],
+  "floodedRoom": [
+    "Water on the floor — ankle deep.",
+    "The floor's soaked. Something got in here.",
+    "A leak somewhere above. The floor's wet through.",
+    "You step in before you see the water.",
+    "Flooded. Your boots {bootsNote}.",
+    "Standing water. Not ideal."
+  ],
+  "merchant": [
+    "A figure with a bag eyes you from the corner.",
+    "Someone's set up shop in here. Bold choice.",
+    "You weren't expecting company. Neither were they.",
+    "A trader. Of sorts. They nod at you.",
+    "You clock the merchandise before you clock the person.",
+    "They've got gear. You've got money. Maybe."
+  ],
+  "scavenger": [
+    "A scavenger picks through the debris nearby.",
+    "Someone's here before you, sifting through the wreck.",
+    "They look up. They want what you've got, not the other way round.",
+    "A buyer, not a seller. Interesting.",
+    "They're not selling. But they're definitely interested in your kit.",
+    "You've got things they want. Whether you sell is up to you."
+  ],
+  "armourBreak": [
+    "Your {tier} {slot} finally gives out, crumbling into {materials}.",
+    "The {tier} {slot} can't take any more — it falls apart.",
+    "One hit too many. Your {tier} {slot} is done.",
+    "You hear a crack. The {tier} {slot} is finished.",
+    "That's it for the {tier} {slot}. It breaks into {materials}."
+  ]
+}

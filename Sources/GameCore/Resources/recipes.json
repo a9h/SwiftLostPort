@@ -1,5 +1,11 @@
 {
-  "scrapHelmet": { "scrapmetal": 5 },
-  "scrapBoots": { "scrapmetal": 3 },
-  "iron": { "scrapmetal": 5 }
+  "rope": { "branch": 1 },
+  "leatherCap": { "rope": 4 },
+  "leatherVest": { "rope": 6 },
+  "leatherBoots": { "rope": 3 },
+  "torch": { "branch": 1, "rope": 1 },
+  "bandage": { "rope": 1, "waterbottle": 1 },
+  "medkit": { "bandage": 2, "medicine": 1 },
+  "iron": { "scrapmetal": 4 },
+  "ironBar": { "iron": 3, "scrapmetal": 2 }
 }

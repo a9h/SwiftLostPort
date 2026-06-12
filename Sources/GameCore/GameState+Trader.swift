@@ -42,24 +42,49 @@ public enum HLGuess: Equatable, Sendable {
     case exact(Int)
 }
 
-/// Which kind of trader appeared (Part 5a).
+/// Which kind of trader appeared. Merchant sells general stock; scavenger buys
+/// your items; medic (Lost update Part 1) sells discounted medical supplies only.
 public enum TraderKind: String, Codable, Sendable {
-    case merchant, scavenger
+    case merchant, scavenger, medic
 }
 
 public extension GameState {
 
+    /// Whether this trader exposes the Workbench. The medic doesn't (Part 1) —
+    /// its whole identity is the medical shop.
+    var traderOffersWorkbench: Bool { traderKind != .medic }
+
     internal func startTrader() {
         screen = .trader
-        if rng.int(in: 1...100) <= Balance.Scavenger.chancePercent {
-            traderKind = .scavenger
-            shopStock = nil
-            say("A hunched scavenger 🪤 eyes your pack — they don't sell, but they'll buy what you've scrounged. Try 'sell', or 'games' to gamble.", .narration)
-        } else {
+        shopStock = nil
+        hlRound = nil
+        // Weighted type within the trader room (Part 2): merchant 60 / medic 25
+        // / scavenger 15.
+        let roll = rng.int(in: 1...100)
+        if roll <= Balance.Trader.merchantWeight {
             traderKind = .merchant
             loadShop()
-            say("You have come across a wild trader, who is willing to sell items to you for a fee. The trader will also play games with you...", .narration)
+            say("🧙 \(flavour(.merchant))", .narration)
+        } else if roll <= Balance.Trader.merchantWeight + Balance.Trader.medicWeight {
+            traderKind = .medic
+            loadMedicShop()
+            say("⚕️ \"You look like you've seen better days. Let me patch you up — for a price.\"", .narration)
+        } else {
+            traderKind = .scavenger
+            say("🪤 \(flavour(.scavenger))", .narration)
         }
+    }
+
+    /// The medic stocks 3 distinct items from the medical pool (Part 1). They
+    /// ride in `shopStock.foods` (all four are priced in `shop.food`).
+    private func loadMedicShop() {
+        let pool = Balance.Medic.pool.sorted()
+        var items: [String] = []
+        while items.count < Balance.Medic.itemCount {
+            let pick = rng.choice(pool)
+            if !items.contains(pick) { items.append(pick) }
+        }
+        shopStock = ShopStock(foods: items, tool: nil, weapon: nil)
     }
 
     /// `loadShop` — two distinct foods, a tool almost always, a weapon ~50%
@@ -83,8 +108,15 @@ public extension GameState {
         shopStock = ShopStock(foods: foods, tool: tool, weapon: weapon)
     }
 
+    /// The price the *current* trader charges for an item. The medic applies a
+    /// flat discount derived from the merchant price (Part 1), so its prices
+    /// stay in sync if merchant prices change.
     func price(of itemID: String) -> Int? {
-        data.shop.price(of: itemID)
+        guard let base = data.shop.price(of: itemID) else { return nil }
+        if traderKind == .medic {
+            return Int((Double(base) * Balance.Medic.priceMultiplier).rounded())
+        }
+        return base
     }
 
     /// Buy a stocked item. The insufficient-funds check applies to every
@@ -97,7 +129,7 @@ public extension GameState {
             say("You do not have enough money for this item.", .warning)
             return
         }
-        player.money -= price
+        spend(price)
         inventory.add(itemID)
         say("You bought a \(ItemCatalog.label(itemID)) for £\(price).", .reward)
     }
@@ -136,7 +168,7 @@ public extension GameState {
               Balance.Scavenger.sellPrices[itemID] != nil, inventory.has(itemID) else { return }
         let price = sellPrice(of: itemID)
         inventory.remove(itemID)
-        player.money += price
+        earn(price)
         say("The scavenger takes your \(ItemCatalog.label(itemID)) and presses £\(price) into your palm.", .reward)
     }
 
@@ -152,11 +184,11 @@ public extension GameState {
         let result: GambleResult
         if coin == choice {
             let payout = Int((Double(bet) * 1.5).rounded())
-            player.money += payout - bet
+            earn(payout - bet)
             result = GambleResult(won: true, exact: false, netChange: payout - bet, reveal: coin.rawValue)
             say("The coin landed on \(coin.rawValue) — you won £\(payout - bet)! New balance: £\(player.money)", .reward)
         } else {
-            player.money -= bet
+            spend(bet)
             result = GambleResult(won: false, exact: false, netChange: -bet, reveal: coin.rawValue)
             say("The coin landed on \(coin.rawValue) — you lost £\(bet). New balance: £\(player.money)", .warning)
         }
@@ -201,17 +233,17 @@ public extension GameState {
         let result: GambleResult
         if exact {
             let net = round.bet * 8 - round.bet
-            player.money += net
+            earn(net)
             result = GambleResult(won: true, exact: true, netChange: net, reveal: reveal)
             say("Unbelievable — \(reveal)! Exact match pays 8×: you won £\(net)! New balance: £\(player.money)", .reward)
         } else if won {
             let payout = Int((Double(round.bet) * 1.5).rounded())
             let net = payout - round.bet
-            player.money += net
+            earn(net)
             result = GambleResult(won: true, exact: false, netChange: net, reveal: reveal)
             say("Correct — \(reveal). You won £\(net)! New balance: £\(player.money)", .reward)
         } else {
-            player.money -= round.bet
+            spend(round.bet)
             result = GambleResult(won: false, exact: false, netChange: -round.bet, reveal: reveal)
             say("Wrong — \(reveal). You lost £\(round.bet). New balance: £\(player.money)", .warning)
         }

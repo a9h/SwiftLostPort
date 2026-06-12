@@ -11,9 +11,11 @@ public struct GameData: Sendable {
     /// Weapon -> scrapmetal yield. Missing key = not breakable.
     public let breakdown: [String: Int]
     public let stats: StatsData
-    /// Recipe name -> ingredient counts (e.g. scrapHelmet needs 5 scrapmetal).
+    /// Recipe name -> ingredient counts (e.g. ironBar needs 3 iron + 2 scrap).
     public let recipes: [String: [String: Int]]
     public let shop: ShopData
+    /// Repeated-event flavour text pools (Part 5).
+    public let prompts: Prompts
 
     public var roomNames: [String] { rooms.keys.sorted() }
 
@@ -28,7 +30,8 @@ public struct GameData: Sendable {
             breakdown: decode("breakdown", from: bundle),
             stats: decode("stats", from: bundle),
             recipes: decode("recipes", from: bundle),
-            shop: decode("shop", from: bundle)
+            shop: decode("shop", from: bundle),
+            prompts: decode("prompts", from: bundle)
         )
     }
 

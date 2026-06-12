@@ -8,12 +8,13 @@ public extension GameState {
     }
 
     internal func startEncounter() {
-        let difficulty = Difficulty.roll(using: &rng)
+        let difficulty = Difficulty.roll(roomsExplored: roomsExplored, using: &rng)
         let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: false, using: &rng)
         enemy = newEnemy
+        runStats.enemiesFought += 1
         encounterPhase = .choosing
         screen = .encounter
-        say("Uh Oh, you have come across an enemy! You can RUN, FIGHT or USE an item.", .narration)
+        say(flavour(.enemyEncounter), .narration)
         say("The enemy is \(newEnemy.displayName) with \(newEnemy.maxHP) health \(newEnemy.emoji)", .combat)
     }
 
@@ -21,6 +22,7 @@ public extension GameState {
     internal func startBossEncounter(_ kind: BossKind) {
         let boss = Enemy.makeBoss(kind, maxDamage: maxDamageFlag)
         enemy = boss
+        runStats.enemiesFought += 1
         encounterPhase = .choosing
         screen = .encounter
         let prefix = maxDamageFlag ? "💀 " : ""
@@ -38,7 +40,9 @@ public extension GameState {
         let raw = rng.int(in: enemy.damageRange)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
+        runStats.damageTaken += damage
         rollPoison(from: enemy)
+        wearArmour() // Part 2b: every hit the player takes wears 1–2 slots.
         return damage
     }
 
@@ -47,14 +51,14 @@ public extension GameState {
     func run() {
         guard screen == .encounter, enemy != nil else { return }
         while rng.int(in: 1...100) < 30 {
-            let damage = enemyHitsPlayer()
-            say("You failed to escape and took \(damage) damage!", .combat)
+            _ = enemyHitsPlayer() // applies the hit; flavour omits the number
+            say(flavour(.escapeFailure), .combat)
             if player.currentHealth <= 0 {
                 gameOver("The enemy caught you as you tried to escape")
                 return
             }
         }
-        say("You escaped to another room! 🏃", .narration)
+        say(flavour(.escapeSuccess), .narration)
         previousEncounter = true
         generateRoom()
     }
@@ -119,7 +123,8 @@ public extension GameState {
             } else {
                 let damage = rng.choice(damages) + inventory.upgradeBonus(of: weaponID)
                 enemy?.hp -= damage
-                say("You hit the enemy with your \(ItemCatalog.label(weaponID)) for \(damage) damage!", .combat)
+                runStats.damageDealt += damage
+                say(flavour(.playerHit, ["enemy": enemy?.displayName ?? "the enemy", "damage": "\(damage)"]), .combat)
                 if inventory.degradeWeapon(weaponID) == true {
                     say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
                 }
@@ -159,7 +164,7 @@ public extension GameState {
             say("The Warlord strikes twice — \(d1) then \(d2)! You have \(player.currentHealth) health left", .combat)
         } else {
             let damage = enemyHitsPlayer()
-            say("The enemy hit you back for \(damage) — you have \(player.currentHealth) health remaining", .combat)
+            say(flavour(.playerTakesHit, ["damage": "\(damage)"]), .combat)
         }
         checkCombatDeath()
     }
@@ -174,6 +179,7 @@ public extension GameState {
             : rng.int(in: Balance.Bosses.packmasterSummonDamage)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
+        runStats.damageTaken += damage
         say("The Packmaster lets out a howl — a \(summonHP)-HP creature lunges and bites for \(damage)!", .combat)
     }
 
@@ -191,8 +197,9 @@ public extension GameState {
 
     private func defeatEnemy(_ enemy: Enemy) {
         let coins = rng.int(in: enemy.coinRange)
-        player.money += coins
+        earn(coins)
         if let kind = enemy.boss {
+            runStats.bossesDefeated += 1
             applyBossDrop(kind)
             say("You felled \(kind.displayName)! It dropped £\(coins) 💷", .reward)
             advanceBossSequence()

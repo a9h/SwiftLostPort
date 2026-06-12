@@ -87,9 +87,11 @@ struct RoomView: View {
             ActionButton("Health", "❤️") { sheet = .stats }
             ActionButton("Armour", "🛡️") { sheet = .armour }
             ActionButton("Equip", "🪖") { sheet = .equip }
-            ActionButton("Crafting", "🛠️") { sheet = .crafting }
-            ActionButton("Breakdown", "🪨") { sheet = .breakdown }
-            ActionButton("Grindstone", "🪒") { sheet = .grindstone }
+            // The Workbench needs your own grindstone in a room; it's free at
+            // either trader.
+            if game.hasGrindstone {
+                ActionButton("Workbench", "🛠️", prominent: true) { sheet = .workbench }
+            }
             ActionButton("Drop", "🗑️") { sheet = .drop }
             ActionButton("Save/Load", "💾") { sheet = .saveLoad }
             ActionButton("Help", "❓") { sheet = .help }

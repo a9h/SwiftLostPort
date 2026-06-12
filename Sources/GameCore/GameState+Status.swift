@@ -18,6 +18,16 @@ public extension GameState {
             }
         }
         guard chance > 0, rng.int(in: 1...100) <= chance else { return }
+        // Helmet poison-resist (Part 3c): a head piece gives a tier-scaled
+        // chance to shrug the poison off. Only rolls when poison would land
+        // and a helmet is worn, so unhelmeted combat stays deterministic.
+        let resist = player.armour.poisonResistPercent
+        if resist > 0, rng.int(in: 1...100) <= resist {
+            if let head = player.armour.head {
+                say("🪖 Your \(head.displayName) helmet turns the poison aside.", .info)
+            }
+            return
+        }
         applyPoison()
     }
 
@@ -40,6 +50,7 @@ public extension GameState {
 
         if let idx = player.statusEffects.firstIndex(where: { $0.kind == .poison }) {
             player.currentHealth -= Balance.Poison.damagePerRoom
+            runStats.damageTaken += Balance.Poison.damagePerRoom
             player.statusEffects[idx].remaining -= 1
             if player.statusEffects[idx].remaining <= 0 {
                 player.statusEffects.remove(at: idx)

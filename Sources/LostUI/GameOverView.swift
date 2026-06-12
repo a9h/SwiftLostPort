@@ -12,7 +12,7 @@ struct GameOverView: View {
             Spacer()
 
             Text("💀")
-                .font(.system(size: 110))
+                .font(.system(size: 90))
                 .scaleEffect(appeared ? 1 : 0.2)
                 .animation(.bouncy(duration: 0.6), value: appeared)
 
@@ -27,6 +27,8 @@ struct GameOverView: View {
                     .font(.title3.monospaced().bold())
                     .padding(.top, 6)
             }
+
+            runStatsPanel
 
             VStack(spacing: 12) {
                 Button {
@@ -52,5 +54,31 @@ struct GameOverView: View {
         }
         .padding()
         .onAppear { appeared = true }
+    }
+
+    /// This run's tracked stats (Lost update Part 4) plus the cause of death.
+    private var runStatsPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("THIS RUN")
+                .font(.caption.monospaced().bold())
+                .foregroundStyle(.tertiary)
+            ForEach(game.runStats.labelledRows, id: \.label) { row in
+                statRow(row.label, row.value)
+            }
+            Divider().overlay(Color.secondary.opacity(0.4))
+            statRow("Cause of death", game.causeOfDeath.isEmpty ? reason : game.causeOfDeath)
+        }
+        .font(.callout.monospaced())
+        .padding(14)
+        .frame(maxWidth: 320)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func statRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).bold()
+        }
     }
 }

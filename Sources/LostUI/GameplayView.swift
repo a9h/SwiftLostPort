@@ -2,7 +2,7 @@ import SwiftUI
 import GameCore
 
 enum ActiveSheet: String, Identifiable {
-    case inventory, stats, armour, crafting, breakdown, equip, drop, use, saveLoad, help, debug, grindstone
+    case inventory, stats, armour, workbench, equip, drop, use, saveLoad, help, debug
     var id: String { rawValue }
 }
 
@@ -49,15 +49,13 @@ struct GameplayView: View {
         case .inventory: InventorySheet()
         case .stats: StatsSheet()
         case .armour: ArmourSheet()
-        case .crafting: CraftingSheet()
-        case .breakdown: BreakdownSheet()
+        case .workbench: WorkbenchSheet()
         case .equip: EquipSheet()
         case .drop: DropSheet()
         case .use: UseSheet()
         case .saveLoad: SaveLoadSheet()
         case .help: HelpSheet()
         case .debug: DebugSheet()
-        case .grindstone: GrindstoneSheet()
         }
     }
 }
@@ -168,6 +166,7 @@ enum RoomStyle {
         case "Tunnel": return "🚇"
         case "Workshop": return "🔧"
         case "AbandonedShop": return "🏚️"
+        case "Pharmacy": return "💊"
         case "Garage": return "🚗"
         default: return "🚪"
         }

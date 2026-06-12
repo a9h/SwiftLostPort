@@ -11,7 +11,7 @@ public extension GameState {
             break
 
         case .dark:
-            say("🌑 It's pitch black in here — you'll need a light to search.", .info)
+            say("🌑 \(flavour(.darkRoom))", .info)
 
         case .trap:
             // Depth-scaled (past the threshold), armour-reduced spike/collapse damage.
@@ -20,25 +20,31 @@ public extension GameState {
             let raw = rng.int(in: scaled)
             let damage = player.armour.reducedDamage(raw)
             player.currentHealth -= damage
-            let flavour = rng.choice([
-                "The floor gives way — spikes!",
-                "The floor gives way — a collapse!",
-                "A tripwire snaps and darts whistle out!",
-            ])
-            say("⚠️ \(flavour) You take \(damage) damage.", .warning)
+            runStats.damageTaken += damage
+            say("⚠️ \(flavour(.trapRoom, ["damage": "\(damage)"]))", .warning)
+            wearArmour() // Part 2b: trap-room damage wears armour too.
             if player.currentHealth <= 0 {
                 gameOver("A trap room got the better of you")
             }
 
         case .flooded:
-            // Boots (any legs armour) keep you dry; otherwise environmental,
-            // NON-armour-reduced water damage and a thirst note.
-            if player.armour.legs > 0 {
-                say("🌊 You wade through the flood — good thing you have boots.", .info)
+            // Boots negate flooded damage by tier: iron/steel keep you bone dry,
+            // leather/scrap only soften it. Environmental damage is NOT armour-
+            // reduced — the boot tier is the only mitigation. When boots help at
+            // all, they wear 1 durability (Part 2b).
+            let hasBoots = player.armour.legs != nil
+            let bootsNote = !hasBoots ? "would've come in handy"
+                : (player.armour.isFloodImmune ? "keep your feet dry" : "take the hit")
+            if player.armour.isFloodImmune {
+                say("🌊 \(flavour(.floodedRoom, ["bootsNote": bootsNote]))", .info)
+                wearArmourSlot(.legs)
             } else {
-                let damage = rng.int(in: Balance.RoomModifiers.floodedDamageRange)
+                let base = rng.int(in: Balance.RoomModifiers.floodedDamageRange)
+                let damage = max(1, Int((Double(base) * (1.0 - player.armour.floodReduction)).rounded()))
                 player.currentHealth -= damage
-                say("🌊 Freezing water soaks you for \(damage) damage. At least it's wet.", .warning)
+                runStats.damageTaken += damage
+                say("🌊 \(flavour(.floodedRoom, ["bootsNote": bootsNote]))", .warning)
+                if hasBoots { wearArmourSlot(.legs) }
                 if player.currentHealth <= 0 {
                     gameOver("You went under in a flooded room")
                 }

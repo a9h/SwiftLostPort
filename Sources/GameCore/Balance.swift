@@ -4,7 +4,7 @@ import Foundation
 /// Logic elsewhere should reference these rather than hard-coding magic numbers.
 public enum Balance {
 
-    // MARK: - Armour (A1: diminishing-returns soft cap)
+    // MARK: - Armour (A1: diminishing-returns soft cap; Part 3: tiers + slots)
 
     public enum Armour {
         /// Max fraction of damage that can ever be removed (asymptote, never reached).
@@ -13,6 +13,112 @@ public enum Balance {
         public static let scale = 120.0
         /// Flat HP removed from every hit before the percentage is applied.
         public static let flat = 2
+
+        // MARK: Tier base values (Part 3a)
+
+        /// Per-slot, per-tier base reduction value feeding `rawArmour`. Chest is
+        /// the backbone (highest values); boots the lightest.
+        public static let tierBaseValue: [ArmourSlot: [ArmourMaterial: Int]] = [
+            .head:  [.leather: 10, .scrap: 20, .iron: 30, .steel: 42],
+            .chest: [.leather: 12, .scrap: 25, .iron: 38, .steel: 52],
+            .legs:  [.leather: 8,  .scrap: 15, .iron: 22, .steel: 30],
+        ]
+
+        public static func baseValue(_ material: ArmourMaterial, slot: ArmourSlot) -> Int {
+            tierBaseValue[slot]?[material] ?? 0
+        }
+
+        /// Maps an old save's summed slot integer to the nearest tier by base
+        /// value (ties resolve to the lower tier). Used by save migration (3d).
+        public static func nearestTier(forRaw value: Int, slot: ArmourSlot) -> ArmourMaterial {
+            let table = tierBaseValue[slot] ?? [:]
+            return ArmourMaterial.allCases.min { a, b in
+                let da = abs((table[a] ?? 0) - value)
+                let db = abs((table[b] ?? 0) - value)
+                if da != db { return da < db }
+                return a.tierIndex < b.tierIndex
+            } ?? .leather
+        }
+
+        // MARK: Upgrade costs (Part 3b)
+
+        /// What it costs (ingredient + count) to reach a given tier from the one
+        /// below it, consuming the current piece in place. Leather is the base
+        /// tier and so has no upgrade-in cost.
+        public static func upgradeCost(to material: ArmourMaterial) -> (ingredient: String, count: Int)? {
+            switch material {
+            case .leather: return nil
+            case .scrap:   return ("scrapmetal", 5)
+            case .iron:    return ("iron", 4)
+            case .steel:   return ("ironBar", 3)
+            }
+        }
+
+        // MARK: Slot specialisation (Part 3c)
+
+        /// Helmet poison-resist chance by tier (when an enemy would poison you).
+        public static let poisonResistPercent: [ArmourMaterial: Int] = [
+            .leather: 10, .scrap: 20, .iron: 35, .steel: 50,
+        ]
+
+        /// Fraction of flooded-room damage the boots negate by tier. Leather
+        /// halves it, scrap takes most, iron/steel make you immune.
+        public static let floodReduction: [ArmourMaterial: Double] = [
+            .leather: 0.5, .scrap: 0.75, .iron: 1.0, .steel: 1.0,
+        ]
+
+        // MARK: Durability pools (Part 2a)
+
+        /// Total damage-absorption a piece has before it breaks, per slot/tier.
+        /// A freshly crafted or upgraded piece starts at this full value.
+        public static let durabilityPool: [ArmourSlot: [ArmourMaterial: Int]] = [
+            .head:  [.leather: 25, .scrap: 35, .iron: 55, .steel: 75],
+            .chest: [.leather: 35, .scrap: 55, .iron: 75, .steel: 100],
+            .legs:  [.leather: 28, .scrap: 42, .iron: 62, .steel: 85],
+        ]
+
+        public static func durability(_ material: ArmourMaterial, slot: ArmourSlot) -> Int {
+            durabilityPool[slot]?[material] ?? 0
+        }
+
+        // MARK: Break drops (Part 2c) — a broken piece falls apart into these.
+
+        public static let breakDrop: [ArmourMaterial: [String: Int]] = [
+            .leather: ["rope": 1],
+            .scrap:   ["scrapmetal": 2],
+            .iron:    ["scrapmetal": 2, "iron": 1],
+            .steel:   ["scrapmetal": 3, "ironBar": 1],
+        ]
+
+        // MARK: Repair (Part 2d) — diminishing returns, all tiers.
+
+        /// Scaling factor: at zero durability a repair restores up to 60% of max.
+        public static let repairBase = 0.6
+        /// Floor: a repair always restores at least 10% of max (rounded up).
+        public static let repairFloor = 0.10
+
+        /// How much a single repair restores, given current/max durability.
+        /// The lower the current durability, the more is restored.
+        public static func repairAmount(maxDurability: Int, currentDurability: Int) -> Int {
+            let floor = Int((Double(maxDurability) * repairFloor).rounded(.up))
+            let scaled = Int((Double(maxDurability) * repairBase
+                              * (1.0 - Double(currentDurability) / Double(maxDurability))).rounded())
+            return Swift.max(floor, scaled)
+        }
+
+        /// Repair material cost per slot/tier (fixed regardless of amount
+        /// restored). Chest costs 1 more than head/legs; the material escalates
+        /// with tier: rope → scrapmetal → iron → ironBar.
+        public static func repairCost(_ slot: ArmourSlot, _ material: ArmourMaterial) -> (ingredient: String, count: Int) {
+            let ingredient: String
+            switch material {
+            case .leather: ingredient = "rope"
+            case .scrap:   ingredient = "scrapmetal"
+            case .iron:    ingredient = "iron"
+            case .steel:   ingredient = "ironBar"
+            }
+            return (ingredient, slot == .chest ? 3 : 2)
+        }
     }
 
     // MARK: - Depth scaling + bosses (B1, rebalanced: delayed start + slow ramp)
@@ -69,6 +175,41 @@ public enum Balance {
             "steak", "cannedfood", "chocolate", "carrot", "waterbottle", "mushroom", "tomato",
             "bandage", "medkit", "medicine", "pills",
         ]
+    }
+
+    // MARK: - Enemy tier gating by room (Lost update Part 1)
+
+    /// Room-gated weighted tier selection. The early game shows only easy
+    /// enemies; medium phases in across a bracket; all three tiers unlock late
+    /// with hard climbing slowly. Easy is never removed entirely.
+    public enum EnemyTiers {
+        /// Up to and including this room, only easy enemies spawn.
+        public static let easyOnlyMaxRoom = 75
+        /// First room at which medium can appear (start of the easy/medium ramp).
+        public static let mediumStartRoom = 76
+        /// First room at which all three tiers (incl. hard) are available.
+        public static let allTiersRoom = 126
+        /// End of the easy↔medium interpolation bracket (medium fully ramped in).
+        public static let mediumRampEndRoom = 125
+
+        /// Hard weight climbs as `(room - allTiersRoom) / hardWeightDivisor`,
+        /// capped at `hardWeightCap`.
+        public static let hardWeightDivisor = 300.0
+        public static let hardWeightCap = 0.5
+        /// Of the non-hard probability, this fraction goes to easy (rest medium).
+        public static let easyShareOfNonHard = 0.40
+
+        /// Medium's share across the 76–125 bracket: 0 at room 76, 1 at room 125.
+        public static func mediumWeight(roomsExplored: Int) -> Double {
+            let span = Double(mediumRampEndRoom - mediumStartRoom) // 49
+            let t = Double(roomsExplored - mediumStartRoom) / span
+            return Swift.min(1.0, Swift.max(0.0, t))
+        }
+
+        /// Hard's share at/after room 126 (slow climb, capped).
+        public static func hardWeight(roomsExplored: Int) -> Double {
+            Swift.min(hardWeightCap, Double(roomsExplored - allTiersRoom) / hardWeightDivisor)
+        }
     }
 
     // MARK: - Enemy combat (Part 2 rebalance: damage + weighted HP)
@@ -160,8 +301,13 @@ public enum Balance {
         /// Extra dark-modifier width for the Tunnel room (trends dark).
         public static let tunnelDarkBonus = 38
 
-        /// Trap damage (depth-scaled, armour-reduced).
-        public static let trapDamageRange = 10...25
+        /// Traps cannot spawn before this room (Lost update Part 6). Dark and
+        /// flooded are unaffected and may still spawn earlier.
+        public static let trapMinRoom = 25
+
+        /// Trap damage (depth-scaled, armour-reduced). Reduced base range in the
+        /// Lost update (Part 6) so early traps sting rather than kill.
+        public static let trapDamageRange = 5...15
         /// Flooded damage when no boots equipped (environmental, NOT reduced).
         public static let floodedDamageRange = 5...15
 
@@ -170,12 +316,83 @@ public enum Balance {
         public static func floodedChance(depth: Int) -> Int { depth < scalingDepth ? earlyFloodedChance : lateFloodedChance }
     }
 
+    // MARK: - Hunger/thirst decay (Lost update Part 7)
+
+    public enum Decay {
+        /// When decay triggers (50% per room, unchanged), each of hunger and
+        /// thirst drops by a random 1…this. Lowered from 10 to 7.
+        public static let maxPerRoom = 7
+    }
+
+    // MARK: - Loot pacing (Lost update Parts 8 & 9)
+
+    public enum Loot {
+        /// Loot success threshold: `lucky < threshold`. More forgiving early.
+        public static let earlyThreshold = 40   // rooms 0–50
+        public static let lateThreshold = 33    // rooms 51+
+        /// Crossover room for both the loot threshold and money brackets.
+        public static let scalingRoom = 50
+
+        /// Money found on a successful loot, by room bracket. "Big" is the ~20%
+        /// high bracket, "small" the ~40% low bracket; else nothing.
+        public static let earlyBig = 10...20
+        public static let earlySmall = 5...12
+        public static let lateBig = 25...40
+        public static let lateSmall = 15...25
+    }
+
+    // MARK: - Depth-weighted loot material modifier (Lost update Part 11)
+
+    /// Re-weights a loot pick so early rooms favour branches and later rooms
+    /// favour scrapmetal. Applied at pick time; the room tables are unchanged.
+    public enum LootWeighting {
+        /// Before this room, branch is favoured; at/after it, scrapmetal is.
+        public static let crossoverRoom = 40
+        /// Relative weight bonus to the favoured material (+50%).
+        public static let favouredMaterialBonus = 0.5
+        /// Relative weight penalty to the disfavoured material (−33%).
+        public static let disfavouredMaterialPenalty = 0.33
+        /// Integer base weight a neutral entry carries (scaled for clean maths:
+        /// favoured = 6·1.5 = 9, disfavoured = 6·0.67 ≈ 4).
+        public static let baseWeight = 6
+        public static let favouredWeight = Int((Double(baseWeight) * (1.0 + favouredMaterialBonus)).rounded())     // 9
+        public static let disfavouredWeight = Int((Double(baseWeight) * (1.0 - disfavouredMaterialPenalty)).rounded()) // 4
+        /// Healable items get a ~1.5× boost in healing-themed rooms.
+        public static let healableWeight = 9
+        public static let healableItems: Set<String> = ["bandage", "medkit", "medicine", "pills"]
+        public static let healableRooms: Set<String> = ["Bathroom", "Pharmacy"]
+    }
+
+    // MARK: - Trader spawning (Lost update Part 2)
+
+    public enum Trader {
+        /// Trader rarity (restored to the original): a trader appears when
+        /// `randint(1, rarityRollMax) < rarityThreshold` (~12% per room).
+        public static let rarityRollMax = 170
+        public static let rarityThreshold = 20
+        /// Type weights *within* a trader room. Must sum to 100.
+        public static let merchantWeight = 60
+        public static let medicWeight = 25
+        public static let scavengerWeight = 15
+    }
+
+    // MARK: - Medic trader (Lost update Part 1)
+
+    public enum Medic {
+        /// The pool the Medic stocks from (3 distinct picks per visit).
+        public static let pool = ["bandage", "medkit", "medicine", "pills"]
+        /// How many distinct items the Medic offers each visit.
+        public static let itemCount = 3
+        /// Flat discount off the merchant price (25% off → pay 75%).
+        public static let discountPercent = 25
+        /// Multiplier applied to the merchant price. Derived so it stays in sync
+        /// if merchant prices ever change (never hardcode the discounted values).
+        public static let priceMultiplier = Double(100 - discountPercent) / 100.0
+    }
+
     // MARK: - Scavenger trader (Part 5a)
 
     public enum Scavenger {
-        /// Chance a rolled trader is a scavenger (else a normal merchant).
-        public static let chancePercent = 40
-
         /// Base buy-back prices the scavenger pays. Weapon prices are scaled by
         /// remaining durability fraction at sell time (minimum £1).
         public static let sellPrices: [String: Int] = [
@@ -183,14 +400,16 @@ public enum Balance {
             // food / consumables — £12 each
             "cannedfood": 12, "chocolate": 12, "carrot": 12, "tomato": 12,
             "mushroom": 12, "waterbottle": 12, "steak": 12,
-            // health
-            "bandage": 15, "medicine": 20, "medkit": 25, "pills": 30,
+            // health (Lost update Part 2d: lowered with shop prices)
+            "bandage": 9, "medicine": 18, "medkit": 19, "pills": 28,
             // weapons (~40% of shop price)
             "fork": 8, "branch": 8, "knife": 16, "bat": 20, "shovel": 20,
             "crowbar": 20, "sword": 40, "longsword": 60,
             // armour
+            "leatherCap": 8, "leatherVest": 9, "leatherBoots": 6,
             "scrapHelmet": 18, "scrapBoots": 12, "scrapChestplate": 20,
             "ironHelmet": 30, "ironBoots": 25, "ironChestplate": 40,
+            "steelHelmet": 45, "steelBoots": 40, "steelChestplate": 60,
             // tools
             "grindstone": 50,
         ]
@@ -201,10 +420,15 @@ public enum Balance {
     public enum Grindstone {
         /// Weapon conversion recipes: source weapon + scrap -> better weapon.
         public struct Conversion { public let result: String; public let scrapCost: Int }
+        /// A single clean linear chain (Lost update Part 4). Branch has no
+        /// conversion; longsword is the end tier. The old crowbar→shovel
+        /// downgrade is gone.
         public static let conversions: [String: Conversion] = [
+            "fork": Conversion(result: "bat", scrapCost: 2),
+            "bat": Conversion(result: "shovel", scrapCost: 3),
+            "shovel": Conversion(result: "crowbar", scrapCost: 4),
+            "crowbar": Conversion(result: "knife", scrapCost: 5),
             "knife": Conversion(result: "sword", scrapCost: 4),
-            "bat": Conversion(result: "crowbar", scrapCost: 3),
-            "crowbar": Conversion(result: "shovel", scrapCost: 5),
             "sword": Conversion(result: "longsword", scrapCost: 6),
         ]
 
@@ -219,5 +443,44 @@ public enum Balance {
         public static let upgradeDamageBonus = 5
 
         public static func cap(for weaponID: String) -> Int { upgradeCaps[weaponID] ?? 0 }
+    }
+
+    // MARK: - Crafting yields (Part 1: rope chain)
+
+    public enum Crafting {
+        /// Rope crafted per branch (the recipe's single output is multiplied by
+        /// this). All other recipes output 1. Trimmed 3 → 2 to offset Garden's
+        /// guaranteed branch (branches are more abundant, worth less rope each).
+        public static let ropePerBranch = 2
+
+        /// Scrapmetal consumed by the iron craft recipe (Lost update Part 13:
+        /// 4 scrapmetal → 1 iron). Mirrors the value in recipes.json.
+        public static let ironRecipeCost = 4
+
+        /// Number of items a recipe produces (default 1).
+        public static func outputCount(for recipeID: String) -> Int {
+            recipeID == "rope" ? ropePerBranch : 1
+        }
+    }
+
+    // MARK: - Weapon repair (Part 4)
+
+    public enum WeaponRepair {
+        public struct Cost: Sendable {
+            public let ingredient: String
+            public let count: Int
+            public let restore: Int
+        }
+        /// Per-weapon repair: material cost and durability restored per repair.
+        public static let costs: [String: Cost] = [
+            "branch":    Cost(ingredient: "rope",       count: 1, restore: 8),
+            "fork":      Cost(ingredient: "rope",       count: 2, restore: 8),
+            "bat":       Cost(ingredient: "scrapmetal", count: 2, restore: 10),
+            "shovel":    Cost(ingredient: "scrapmetal", count: 2, restore: 10),
+            "crowbar":   Cost(ingredient: "scrapmetal", count: 3, restore: 12),
+            "knife":     Cost(ingredient: "scrapmetal", count: 3, restore: 12),
+            "sword":     Cost(ingredient: "iron",       count: 3, restore: 15),
+            "longsword": Cost(ingredient: "iron",       count: 4, restore: 15),
+        ]
     }
 }

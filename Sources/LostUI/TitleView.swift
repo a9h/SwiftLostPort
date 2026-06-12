@@ -7,6 +7,7 @@ struct TitleView: View {
     @EnvironmentObject private var game: GameState
     @State private var showLoadPicker = false
     @State private var showDebug = false
+    @State private var showLifetimeStats = false
 
     private let logo = """
     ╔══════════════════════╗
@@ -49,6 +50,16 @@ struct TitleView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(!GameState.saveSlots.contains(where: { game.hasSave(slot: $0) }))
+
+                Button {
+                    game.refreshLifetimeStats()
+                    showLifetimeStats = true
+                } label: {
+                    Label("Lifetime Stats", systemImage: "chart.bar.fill")
+                        .frame(maxWidth: 240)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
 
             Text("🧟  🔦  🍅  🪖  🐉")
@@ -71,6 +82,12 @@ struct TitleView: View {
             Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $showDebug) { DebugSheet() }
+        .sheet(isPresented: $showLifetimeStats) {
+            LifetimeStatsSheet().environmentObject(game)
+                #if os(macOS)
+                .frame(minWidth: 380, minHeight: 420)
+                #endif
+        }
     }
 
     private func slotLabel(_ slot: Int) -> String {
