@@ -212,14 +212,14 @@ public final class GameState: ObservableObject {
         // Status effects (poison) tick on room entry and can be fatal.
         guard tickStatusEffects() else { return }
 
-        // Overall trader chance (Part 2) and the encounter roll. Both are always
-        // drawn so the RNG sequence stays stable; the flags below decide.
-        let traderRoll = rng.int(in: 1...100)
+        // Trader rarity roll (restored to ~12%/room) and the encounter roll. Both
+        // are always drawn so the RNG sequence stays stable; the flags below decide.
+        let traderRoll = rng.int(in: 1...Balance.Trader.rarityRollMax)
         let encounterChance = rng.int(in: 1...130)
         let enemyAppears = encounterChance < 25 && !previousEncounter
         // A trader can't follow a trader (Part 3): the roll is suppressed when
         // the previous room was one.
-        let traderAppears = traderRoll <= Balance.Trader.overallChancePercent && !lastRoomWasTrader
+        let traderAppears = traderRoll < Balance.Trader.rarityThreshold && !lastRoomWasTrader
         previousEncounter = false
 
         // A boss gate: once depth reaches the milestone, the boss is forced

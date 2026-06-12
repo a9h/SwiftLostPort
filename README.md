@@ -445,3 +445,14 @@ the room immediately after a trader, so you can never hit two traders in a row.
 `Trader.medicWeight = 25`, `Trader.scavengerWeight = 15`; `Medic.pool`,
 `Medic.itemCount = 3`, `Medic.discountPercent = 25`, `Medic.priceMultiplier`
 (0.75, derived). Removed: `Scavenger.chancePercent`.
+
+## What changed in the "Lost" micro-update (frequency trims)
+
+- **Healable loot trimmed:** removed one bandage duplicate each from Bathroom,
+  Pharmacy, Abandoned Shop and Tunnel (roughly half the previous bump; medkit
+  single-additions and Street's lone bandage left intact, so every healable
+  still appears in every room it did before).
+- **Trader frequency restored:** the ~40% trader gate is back to the original
+  `randint(1, 170) < 20` (~12% per room) — `Trader.overallChancePercent` is
+  replaced by `Trader.rarityRollMax = 170` and `Trader.rarityThreshold = 20`. The
+  merchant/medic/scavenger split (60/25/15) is unchanged.

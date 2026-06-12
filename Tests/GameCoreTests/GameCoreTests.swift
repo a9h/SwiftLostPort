@@ -1834,8 +1834,10 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Trader spawn probabilities (Lost update Part 2)
 
-    func testTraderOverallChanceAndTypeWeights() {
-        XCTAssertEqual(Balance.Trader.overallChancePercent, 40)
+    func testTraderRarityAndTypeWeights() {
+        // Restored rarity: randint(1, 170) < 20 (~12% per room).
+        XCTAssertEqual(Balance.Trader.rarityRollMax, 170)
+        XCTAssertEqual(Balance.Trader.rarityThreshold, 20)
         XCTAssertEqual(Balance.Trader.merchantWeight, 60)
         XCTAssertEqual(Balance.Trader.medicWeight, 25)
         XCTAssertEqual(Balance.Trader.scavengerWeight, 15)
@@ -1845,18 +1847,18 @@ final class GameCoreTests: XCTestCase {
                        + Balance.Trader.scavengerWeight, 100)
     }
 
-    func testTraderSpawnsAtFortyPercentGate() {
-        // Trader roll 40 (<= 40) -> trader appears.
+    func testTraderSpawnsBelowRarityThreshold() {
+        // Trader roll 19 (< 20) -> trader appears.
         let yes = startInRoom(doors: 1, thenScript: [])
-        // decay 50(no), traderRoll 40, encounter 100(no enemy), type 50 -> merchant,
+        // decay 50(no), traderRoll 19, encounter 100(no enemy), type 50 -> merchant,
         // loadShop foods 0,1, tool 50, tool 0, weapon 10 (none).
-        yes.rng = ScriptedGameRandom([50, 40, 100, 50, 0, 1, 50, 0, 10])
+        yes.rng = ScriptedGameRandom([50, 19, 100, 50, 0, 1, 50, 0, 10])
         yes.takeDoor(1)
         XCTAssertEqual(yes.screen, .trader)
 
-        // Trader roll 41 (> 40) -> ordinary room.
+        // Trader roll 20 (not < 20) -> ordinary room.
         let no = startInRoom(doors: 1, thenScript: [])
-        no.rng = ScriptedGameRandom([50, 41, 100, 0, 1, 100]) // normal room
+        no.rng = ScriptedGameRandom([50, 20, 100, 0, 1, 100]) // normal room
         no.takeDoor(1)
         XCTAssertEqual(no.screen, .room)
     }
