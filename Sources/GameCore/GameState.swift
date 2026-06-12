@@ -341,7 +341,8 @@ public final class GameState: ObservableObject {
     func pickLootItem(from table: [String]) -> String {
         let hasBranch = table.contains("branch")
         let hasScrap = table.contains("scrapmetal")
-        guard hasBranch || hasScrap else { return rng.choice(table) }
+        let isHealableRoom = Balance.LootWeighting.healableRooms.contains(roomName)
+        guard hasBranch || hasScrap || isHealableRoom else { return rng.choice(table) }
 
         let branchFavoured = roomsExplored < Balance.LootWeighting.crossoverRoom
         let favoured = branchFavoured ? "branch" : "scrapmetal"
@@ -349,6 +350,9 @@ public final class GameState: ObservableObject {
         let weights = table.map { id -> Int in
             if id == favoured { return Balance.LootWeighting.favouredWeight }
             if id == disfavoured { return Balance.LootWeighting.disfavouredWeight }
+            if isHealableRoom && Balance.LootWeighting.healableItems.contains(id) {
+                return Balance.LootWeighting.healableWeight
+            }
             return Balance.LootWeighting.baseWeight
         }
         var roll = rng.int(in: 1...weights.reduce(0, +))

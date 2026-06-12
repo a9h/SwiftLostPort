@@ -1,7 +1,7 @@
 {
   "Kitchen": ["knife", "carrot", "tomato", "chocolate", "fork", "waterbottle"],
   "Bedroom": ["bat", "chocolate", "waterbottle"],
-  "Bathroom": ["medicine", "waterbottle", "bandage", "bandage", "bandage", "bandage", "bandage", "medkit", "medkit", "medkit"],
+  "Bathroom": ["medicine", "waterbottle", "bandage", "medkit"],
   "Basement": ["crowbar", "torch", "waterbottle", "scrapmetal", "scrapmetal"],
   "Garden": ["branch", "shovel", "mushroom", "mushroom", "scrapmetal"],
   "Scrapyard": ["scrapmetal", "scrapmetal", "scrapmetal", "scrapmetal", "iron", "crowbar", "shovel", "torch", "shovel", "crowbar", "crowbar", "torch"],
@@ -9,6 +9,6 @@
   "Tunnel": ["torch", "scrapmetal", "scrapmetal", "bandage", "crowbar", "iron", "knife", "branch"],
   "Workshop": ["iron", "iron", "scrapmetal", "scrapmetal", "grindstone", "shovel", "crowbar", "bandage", "medkit"],
   "AbandonedShop": ["cannedfood", "cannedfood", "chocolate", "waterbottle", "medicine", "bandage", "bandage", "pills", "medkit", "medkit", "torch", "crowbar", "shovel"],
-  "Pharmacy": ["bandage", "bandage", "medkit", "medicine", "pills", "medkit", "medkit", "waterbottle"],
+  "Pharmacy": ["bandage", "medkit", "medicine", "pills", "waterbottle"],
   "Garage": ["scrapmetal", "scrapmetal", "iron", "crowbar", "bat", "torch", "torch", "torch", "shovel", "crowbar", "branch"]
 }

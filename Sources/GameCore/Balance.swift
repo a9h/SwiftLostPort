@@ -357,6 +357,10 @@ public enum Balance {
         public static let baseWeight = 6
         public static let favouredWeight = Int((Double(baseWeight) * (1.0 + favouredMaterialBonus)).rounded())     // 9
         public static let disfavouredWeight = Int((Double(baseWeight) * (1.0 - disfavouredMaterialPenalty)).rounded()) // 4
+        /// Healable items get a ~1.5× boost in healing-themed rooms.
+        public static let healableWeight = 9
+        public static let healableItems: Set<String> = ["bandage", "medkit", "medicine", "pills"]
+        public static let healableRooms: Set<String> = ["Bathroom", "Pharmacy"]
     }
 
     // MARK: - Trader spawning (Lost update Part 2)
