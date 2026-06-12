@@ -275,6 +275,12 @@ public final class GameState: ObservableObject {
         }
         hasLooted = true
 
+        // A Garden always has a fallen branch to grab — guaranteed on every loot
+        // (no roll), on top of whatever random loot turns up, so two branches in
+        // one haul is possible. Consumes no RNG, so other rooms are unaffected.
+        let gardenBranch = roomName == "Garden"
+        if gardenBranch { inventory.add("branch") }
+
         // Fewer doors = luckier roll.
         let lucky: Int
         switch doors {
@@ -287,13 +293,21 @@ public final class GameState: ObservableObject {
             ? Balance.Loot.earlyThreshold
             : Balance.Loot.lateThreshold
         guard lucky < threshold else {
-            say(flavour(.lootFailure), .info)
+            if gardenBranch {
+                say("You comb the garden and pocket a fallen branch.", .reward)
+            } else {
+                say(flavour(.lootFailure), .info)
+            }
             return
         }
 
         let table = data.rooms[roomName] ?? []
         guard !table.isEmpty else {
-            say(flavour(.lootFailure), .info)
+            if gardenBranch {
+                say("You comb the garden and pocket a fallen branch.", .reward)
+            } else {
+                say(flavour(.lootFailure), .info)
+            }
             return
         }
         let itemID = pickLootItem(from: table)
@@ -315,6 +329,7 @@ public final class GameState: ObservableObject {
 
         var message = flavour(.lootSuccess, ["item": ItemCatalog.label(itemID)])
         if money > 0 { message += " & £\(money)!" }
+        if gardenBranch { message += " (plus a fallen branch from the garden)" }
         say(message, .reward)
     }
 

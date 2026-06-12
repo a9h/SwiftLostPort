@@ -445,8 +445,9 @@ public enum Balance {
 
     public enum Crafting {
         /// Rope crafted per branch (the recipe's single output is multiplied by
-        /// this). All other recipes output 1.
-        public static let ropePerBranch = 3
+        /// this). All other recipes output 1. Trimmed 3 → 2 to offset Garden's
+        /// guaranteed branch (branches are more abundant, worth less rope each).
+        public static let ropePerBranch = 2
 
         /// Scrapmetal consumed by the iron craft recipe (Lost update Part 13:
         /// 4 scrapmetal → 1 iron). Mirrors the value in recipes.json.
