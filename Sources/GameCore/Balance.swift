@@ -359,12 +359,34 @@ public enum Balance {
         public static let disfavouredWeight = Int((Double(baseWeight) * (1.0 - disfavouredMaterialPenalty)).rounded()) // 4
     }
 
+    // MARK: - Trader spawning (Lost update Part 2)
+
+    public enum Trader {
+        /// Overall chance any given (non-boss, non-enemy) room is a trader room.
+        public static let overallChancePercent = 40
+        /// Type weights *within* a trader room. Must sum to 100.
+        public static let merchantWeight = 60
+        public static let medicWeight = 25
+        public static let scavengerWeight = 15
+    }
+
+    // MARK: - Medic trader (Lost update Part 1)
+
+    public enum Medic {
+        /// The pool the Medic stocks from (3 distinct picks per visit).
+        public static let pool = ["bandage", "medkit", "medicine", "pills"]
+        /// How many distinct items the Medic offers each visit.
+        public static let itemCount = 3
+        /// Flat discount off the merchant price (25% off → pay 75%).
+        public static let discountPercent = 25
+        /// Multiplier applied to the merchant price. Derived so it stays in sync
+        /// if merchant prices ever change (never hardcode the discounted values).
+        public static let priceMultiplier = Double(100 - discountPercent) / 100.0
+    }
+
     // MARK: - Scavenger trader (Part 5a)
 
     public enum Scavenger {
-        /// Chance a rolled trader is a scavenger (else a normal merchant).
-        public static let chancePercent = 40
-
         /// Base buy-back prices the scavenger pays. Weapon prices are scaled by
         /// remaining durability fraction at sell time (minimum £1).
         public static let sellPrices: [String: Int] = [

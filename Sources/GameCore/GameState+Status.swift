@@ -50,6 +50,7 @@ public extension GameState {
 
         if let idx = player.statusEffects.firstIndex(where: { $0.kind == .poison }) {
             player.currentHealth -= Balance.Poison.damagePerRoom
+            runStats.damageTaken += Balance.Poison.damagePerRoom
             player.statusEffects[idx].remaining -= 1
             if player.statusEffects[idx].remaining <= 0 {
                 player.statusEffects.remove(at: idx)

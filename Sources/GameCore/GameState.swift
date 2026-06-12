@@ -80,12 +80,44 @@ public final class GameState: ObservableObject {
     /// Total rooms entered this run — shown in the HUD as "Rooms".
     @Published public internal(set) var roomsExplored = 0
 
+    /// True once a trader room is generated; blocks a second trader room
+    /// immediately after (Lost update Part 3). Reset on any non-trader room.
+    @Published public internal(set) var lastRoomWasTrader = false
+
+    // MARK: - Stats (Lost update Part 4)
+
+    /// Per-run tracked statistics. Reset on a new game, persisted in the active
+    /// save, and folded into the lifetime totals on death.
+    @Published public internal(set) var runStats = RunStats()
+    /// Lifetime totals across all runs. Loaded from a store separate from any
+    /// active save, so they survive death, new games and save overwrites.
+    @Published public internal(set) var lifetimeStats = RunStats()
+    /// How the current run ended (death screen only — never accumulated).
+    @Published public internal(set) var causeOfDeath = ""
+
     public init(data: GameData = .load(),
                 rng: GameRandom = SystemGameRandom(),
                 saveStore: SaveStore = FileSaveStore()) {
         self.data = data
         self.rng = rng
         self.saveStore = saveStore
+        self.lifetimeStats = saveStore.loadLifetime()
+    }
+
+    // MARK: - Money helpers (route every change through stat tracking)
+
+    /// Adds money and records it as earned this run.
+    func earn(_ amount: Int) {
+        guard amount > 0 else { return }
+        player.money += amount
+        runStats.moneyEarned += amount
+    }
+
+    /// Subtracts money and records it as spent this run.
+    func spend(_ amount: Int) {
+        guard amount > 0 else { return }
+        player.money -= amount
+        runStats.moneySpent += amount
     }
 
     // MARK: - Logging
@@ -116,13 +148,33 @@ public final class GameState: ObservableObject {
         maxDamageFlag = false
         roomModifier = .none
         roomsExplored = 0
+        lastRoomWasTrader = false
+        runStats = RunStats()
+        causeOfDeath = ""
         log = []
         say("Welcome to LOST. Find your way out... or don't.", .narration)
         generateRoom()
     }
 
+    /// Ends the run: records the cause, folds this run's stats into the lifetime
+    /// totals (which live in a store separate from any active save), then shows
+    /// the death screen.
     func gameOver(_ reason: String) {
+        causeOfDeath = reason
+        foldRunIntoLifetime()
         screen = .gameOver(reason: reason, money: player.money)
+    }
+
+    /// Accumulates the finished run into the persistent lifetime store.
+    func foldRunIntoLifetime() {
+        let updated = saveStore.loadLifetime() + runStats
+        try? saveStore.saveLifetime(updated)
+        lifetimeStats = updated
+    }
+
+    /// Reloads the lifetime totals from the store (for the main-menu screen).
+    public func refreshLifetimeStats() {
+        lifetimeStats = saveStore.loadLifetime()
     }
 
     public func returnToTitle() {
@@ -138,6 +190,7 @@ public final class GameState: ObservableObject {
         hlRound = nil
         roomModifier = .none
         roomsExplored += 1
+        runStats.roomsExplored += 1
         depth = roomsExplored / 2 // depth advances once every two rooms
 
         // Hunger/thirst decay: 50% chance to lose 1–7 of each (Lost update Part 7).
@@ -159,21 +212,30 @@ public final class GameState: ObservableObject {
         // Status effects (poison) tick on room entry and can be fatal.
         guard tickStatusEffects() else { return }
 
-        let traderRarity = rng.int(in: 1...170)
+        // Overall trader chance (Part 2) and the encounter roll. Both are always
+        // drawn so the RNG sequence stays stable; the flags below decide.
+        let traderRoll = rng.int(in: 1...100)
         let encounterChance = rng.int(in: 1...130)
         let enemyAppears = encounterChance < 25 && !previousEncounter
+        // A trader can't follow a trader (Part 3): the roll is suppressed when
+        // the previous room was one.
+        let traderAppears = traderRoll <= Balance.Trader.overallChancePercent && !lastRoomWasTrader
         previousEncounter = false
 
         // A boss gate: once depth reaches the milestone, the boss is forced
         // every room (bypassing the previous flag and the encounter roll) until
         // it is defeated.
         if depth >= nextBossDepth {
+            lastRoomWasTrader = false
             startBossEncounter(BossKind(rawValue: bossSequenceIndex) ?? .cowboy)
         } else if enemyAppears {
+            lastRoomWasTrader = false
             startEncounter()
-        } else if traderRarity < 20 {
+        } else if traderAppears {
+            lastRoomWasTrader = true
             startTrader()
         } else {
+            lastRoomWasTrader = false
             roomName = rng.choice(data.roomNames)
             doors = rng.int(in: 1...3)
             hasLooted = false
@@ -249,7 +311,7 @@ public final class GameState: ObservableObject {
         }
 
         inventory.add(itemID)
-        player.money += money
+        earn(money)
 
         var message = flavour(.lootSuccess, ["item": ItemCatalog.label(itemID)])
         if money > 0 { message += " & £\(money)!" }

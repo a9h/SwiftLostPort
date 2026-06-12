@@ -1415,7 +1415,7 @@ final class GameCoreTests: XCTestCase {
 
     func testShopWeaponAppearsAndIsBuyable() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // trader-kind 50 (>40 -> merchant); loadShop: foods 0,1; tool roll 50
+        // trader-type 50 (<=60 -> merchant); loadShop: foods 0,1; tool roll 50
         // (<100 -> grindstone, choice 0); weapon roll 30 (>25 -> longsword).
         game.rng = ScriptedGameRandom([50, 0, 1, 50, 0, 30, 0])
         game.startTrader()
@@ -1433,7 +1433,7 @@ final class GameCoreTests: XCTestCase {
 
     func testShopStocksTwoDistinctFoods() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // trader-kind 50 (merchant); foods collide (0,0) then resolve (1);
+        // trader-type 50 (merchant); foods collide (0,0) then resolve (1);
         // tool roll/choice; weapon roll 10 (no weapon).
         game.rng = ScriptedGameRandom([50, 0, 0, 1, 50, 0, 10])
         game.startTrader()
@@ -1446,18 +1446,30 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Scavenger trader + grindstone (Part 5)
 
-    func testScavengerAppearsOnLowRoll() {
-        let scav = startInRoom(doors: 1, thenScript: [])
-        scav.rng = ScriptedGameRandom([20]) // <=40 -> scavenger
-        scav.startTrader()
-        XCTAssertEqual(scav.traderKind, .scavenger)
-        XCTAssertNil(scav.shopStock)
-
+    func testTraderTypeRollWeighting() {
+        // Type weights within a trader room (Lost update Part 2): merchant 1–60,
+        // medic 61–85, scavenger 86–100.
         let merch = startInRoom(doors: 1, thenScript: [])
-        merch.rng = ScriptedGameRandom([50, 0, 1, 50, 0, 10]) // >40 -> merchant + loadShop
+        merch.rng = ScriptedGameRandom([60, 0, 1, 50, 0, 10]) // 60 -> merchant + loadShop
         merch.startTrader()
         XCTAssertEqual(merch.traderKind, .merchant)
         XCTAssertNotNil(merch.shopStock)
+
+        let medic = startInRoom(doors: 1, thenScript: [])
+        medic.rng = ScriptedGameRandom([61, 0, 1, 2]) // 61 -> medic; 3 distinct picks
+        medic.startTrader()
+        XCTAssertEqual(medic.traderKind, .medic)
+
+        let medicEdge = startInRoom(doors: 1, thenScript: [])
+        medicEdge.rng = ScriptedGameRandom([85, 0, 1, 2]) // 85 -> still medic
+        medicEdge.startTrader()
+        XCTAssertEqual(medicEdge.traderKind, .medic)
+
+        let scav = startInRoom(doors: 1, thenScript: [])
+        scav.rng = ScriptedGameRandom([86]) // 86 -> scavenger (sell-only, no stock)
+        scav.startTrader()
+        XCTAssertEqual(scav.traderKind, .scavenger)
+        XCTAssertNil(scav.shopStock)
     }
 
     func testScavengerSellPricesBaseAndDurabilityScaled() {
@@ -1768,5 +1780,209 @@ final class GameCoreTests: XCTestCase {
         game.takeDoor(1)
         XCTAssertEqual(game.screen, .encounter)
         XCTAssertNotNil(game.enemy)
+    }
+
+    // MARK: - Medic trader (Lost update Part 1)
+
+    func testMedicSellsThreeDistinctItemsFromPoolNoWorkbench() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // type roll 70 -> medic; pool sorted ["bandage","medkit","medicine","pills"];
+        // pick indices 0,1,2 -> three distinct.
+        game.rng = ScriptedGameRandom([70, 0, 1, 2])
+        game.startTrader()
+        XCTAssertEqual(game.traderKind, .medic)
+        let items = game.shopStock?.allItemIDs ?? []
+        XCTAssertEqual(items.count, Balance.Medic.itemCount)
+        XCTAssertEqual(Set(items).count, 3) // distinct
+        for id in items { XCTAssertTrue(Balance.Medic.pool.contains(id), id) }
+        // The medic exposes no Workbench.
+        XCTAssertFalse(game.traderOffersWorkbench)
+    }
+
+    func testMedicPricesAreExactly25PercentBelowMerchant() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.rng = ScriptedGameRandom([70, 0, 1, 2]) // medic
+        game.startTrader()
+        let shop = GameData.load().shop
+        for id in Balance.Medic.pool {
+            let merchant = shop.price(of: id)!
+            let expected = Int((Double(merchant) * 0.75).rounded())
+            XCTAssertEqual(game.price(of: id), expected, id)
+        }
+        // Concrete (rounded per the existing convention): 18→14, 38→29, 35→26, 55→41.
+        XCTAssertEqual(game.price(of: "bandage"), 14)
+        XCTAssertEqual(game.price(of: "medkit"), 29)
+        XCTAssertEqual(game.price(of: "medicine"), 26)
+        XCTAssertEqual(game.price(of: "pills"), 41)
+        XCTAssertEqual(Balance.Medic.discountPercent, 25)
+    }
+
+    func testMedicBuysAtDiscountAndDoesNotBuyFromPlayer() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.rng = ScriptedGameRandom([70, 0, 1, 2]) // medic stocks bandage, medkit, medicine
+        game.startTrader()
+        game.player.money = 100
+        game.buy("bandage") // discounted 14
+        XCTAssertEqual(game.player.money, 86)
+        XCTAssertEqual(game.inventory.count(of: "bandage"), 1)
+        XCTAssertEqual(game.runStats.moneySpent, 14)
+        // The medic does not buy items from the player: sell() is scavenger-only.
+        game.inventory.add("iron")
+        game.sell("iron")
+        XCTAssertEqual(game.inventory.count(of: "iron"), 1) // unchanged
+    }
+
+    // MARK: - Trader spawn probabilities (Lost update Part 2)
+
+    func testTraderOverallChanceAndTypeWeights() {
+        XCTAssertEqual(Balance.Trader.overallChancePercent, 40)
+        XCTAssertEqual(Balance.Trader.merchantWeight, 60)
+        XCTAssertEqual(Balance.Trader.medicWeight, 25)
+        XCTAssertEqual(Balance.Trader.scavengerWeight, 15)
+        // The three type weights must sum to 100.
+        XCTAssertEqual(Balance.Trader.merchantWeight
+                       + Balance.Trader.medicWeight
+                       + Balance.Trader.scavengerWeight, 100)
+    }
+
+    func testTraderSpawnsAtFortyPercentGate() {
+        // Trader roll 40 (<= 40) -> trader appears.
+        let yes = startInRoom(doors: 1, thenScript: [])
+        // decay 50(no), traderRoll 40, encounter 100(no enemy), type 50 -> merchant,
+        // loadShop foods 0,1, tool 50, tool 0, weapon 10 (none).
+        yes.rng = ScriptedGameRandom([50, 40, 100, 50, 0, 1, 50, 0, 10])
+        yes.takeDoor(1)
+        XCTAssertEqual(yes.screen, .trader)
+
+        // Trader roll 41 (> 40) -> ordinary room.
+        let no = startInRoom(doors: 1, thenScript: [])
+        no.rng = ScriptedGameRandom([50, 41, 100, 0, 1, 100]) // normal room
+        no.takeDoor(1)
+        XCTAssertEqual(no.screen, .room)
+    }
+
+    // MARK: - No consecutive trader rooms (Lost update Part 3)
+
+    func testTraderNeverFollowedImmediatelyByTrader() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Room 2: force a (scavenger) trader. traderRoll 10, type 86 -> scavenger.
+        game.rng = ScriptedGameRandom([50, 10, 100, 86])
+        game.takeDoor(1)
+        XCTAssertEqual(game.screen, .trader)
+        XCTAssertTrue(game.lastRoomWasTrader)
+
+        // Leaving -> next room. Even a trader-triggering roll (10) is suppressed.
+        game.rng = ScriptedGameRandom([50, 10, 100, 0, 1, 100]) // resolves as a normal room
+        game.leaveTrader()
+        XCTAssertEqual(game.screen, .room)
+        XCTAssertFalse(game.lastRoomWasTrader)
+    }
+
+    func testLastRoomWasTraderPersistsAcrossSaveLoad() {
+        let game = startInRoom(doors: 2, thenScript: [])
+        game.lastRoomWasTrader = true
+        game.saveGame(slot: 1)
+        game.startNewGame()
+        XCTAssertFalse(game.lastRoomWasTrader) // fresh run reset it
+        XCTAssertTrue(game.loadGame(slot: 1))
+        XCTAssertTrue(game.lastRoomWasTrader) // restored from save
+    }
+
+    // MARK: - Per-run stats (Lost update Part 4)
+
+    func testStatsTrackRoomsAndCrafting() {
+        let game = startInRoom(doors: 1, thenScript: []) // room 1
+        XCTAssertEqual(game.runStats.roomsExplored, 1)
+        game.inventory.add("branch")
+        game.craft("rope") // 1 branch -> 3 rope
+        XCTAssertEqual(game.runStats.itemsCrafted, 3)
+        game.craft("leatherBoots") // 3 rope -> 1 boots
+        XCTAssertEqual(game.runStats.itemsCrafted, 4)
+    }
+
+    func testStatsTrackCombatDamageAndEnemies() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        game.inventory.add("knife")
+        game.rng = ScriptedGameRandom([150, 0]) // easy enemy, HP 75
+        game.startEncounter()
+        XCTAssertEqual(game.runStats.enemiesFought, 1)
+        game.enemy?.hp = 1000
+        game.beginFight()
+        game.rng = ScriptedGameRandom([5, 10]) // knife idx5 = 55 dealt; counter raw 10
+        game.attack(with: "knife")
+        XCTAssertEqual(game.runStats.damageDealt, 55)
+        XCTAssertEqual(game.runStats.damageTaken, 8) // reducedDamage(10), no armour
+    }
+
+    func testStatsTrackBossesDefeatedAndMoney() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("longsword")
+        game.startBossEncounter(.ghoul)
+        game.enemy?.hp = 1
+        game.beginFight()
+        // longsword idx0 = 85 kills; coins 120; then a plain next room.
+        game.rng = ScriptedGameRandom([0, 120, 50, 100, 100, 0, 1, 100])
+        game.attack(with: "longsword")
+        XCTAssertEqual(game.runStats.bossesDefeated, 1)
+        XCTAssertEqual(game.runStats.moneyEarned, 120) // coins routed through earn()
+
+        // Money spent is tracked through buy().
+        let shopper = startInRoom(doors: 1, thenScript: [])
+        shopper.rng = ScriptedGameRandom([50, 0, 1, 50, 0, 30, 0]) // merchant, longsword stocked
+        shopper.startTrader()
+        shopper.player.money = 200
+        shopper.buy("longsword") // £150
+        XCTAssertEqual(shopper.runStats.moneySpent, 150)
+    }
+
+    func testCauseOfDeathRecordedPerType() {
+        // Starvation.
+        let starved = startInRoom(doors: 1, thenScript: [])
+        starved.player.hunger = 5
+        starved.rng = ScriptedGameRandom([60, 7, 1]) // decay -7 hunger -> dead
+        starved.takeDoor(1)
+        XCTAssertEqual(starved.causeOfDeath, "You ran out of hunger and died")
+
+        // Poison.
+        let poisoned = startInRoom(doors: 1, thenScript: [])
+        poisoned.player.currentHealth = 4
+        poisoned.applyPoison()
+        poisoned.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 100])
+        poisoned.takeDoor(1)
+        XCTAssertEqual(poisoned.causeOfDeath, "The poison finished you off")
+    }
+
+    // MARK: - Lifetime stats (Lost update Part 4)
+
+    func testLifetimeStatsFoldOnDeathSurviveNewGameAndAreIndependent() {
+        let store = MemorySaveStore()
+        let game = GameState(data: .load(), rng: SeededGameRandom(seed: 1), saveStore: store)
+        game.startNewGame()
+        game.runStats = RunStats(roomsExplored: 5, enemiesFought: 3, bossesDefeated: 1,
+                                 damageDealt: 100, damageTaken: 50, itemsCrafted: 2,
+                                 moneyEarned: 80, moneySpent: 30)
+        game.gameOver("test death")
+        // Folded into both the published totals and the persistent store.
+        XCTAssertEqual(game.lifetimeStats.enemiesFought, 3)
+        XCTAssertEqual(store.loadLifetime().enemiesFought, 3)
+        XCTAssertEqual(store.loadLifetime().roomsExplored, 5)
+
+        // A new game never resets the lifetime store (it survives a fresh run).
+        game.startNewGame()
+        XCTAssertEqual(store.loadLifetime().enemiesFought, 3)
+
+        // A second run folds additively.
+        game.runStats = RunStats(enemiesFought: 2, moneyEarned: 20)
+        game.gameOver("again")
+        XCTAssertEqual(store.loadLifetime().enemiesFought, 5) // 3 + 2
+        XCTAssertEqual(store.loadLifetime().moneyEarned, 100) // 80 + 20
+
+        // Lifetime is independent of any active save slot: deleting a slot leaves
+        // it untouched, and a fresh GameState reads it back from the store.
+        store.deleteSave(slot: 1)
+        XCTAssertEqual(store.loadLifetime().enemiesFought, 5)
+        let reopened = GameState(data: .load(), saveStore: store)
+        XCTAssertEqual(reopened.lifetimeStats.enemiesFought, 5)
     }
 }

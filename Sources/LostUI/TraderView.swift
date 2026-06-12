@@ -1,8 +1,9 @@
 import SwiftUI
 import GameCore
 
-/// The trader — either a merchant (sells stock) or a scavenger (buys your
-/// items). Both offer gambling and a free grindstone service.
+/// The trader — a merchant (sells stock), a scavenger (buys your items), or a
+/// medic (sells discounted medical supplies only). All offer gambling; the
+/// merchant and scavenger also expose the Workbench, the medic does not.
 struct TraderView: View {
     @EnvironmentObject private var game: GameState
     @Binding var sheet: ActiveSheet?
@@ -13,14 +14,29 @@ struct TraderView: View {
     @State private var showWorkbench = false
 
     private var isScavenger: Bool { game.traderKind == .scavenger }
+    private var isMedic: Bool { game.traderKind == .medic }
+
+    private var traderEmoji: String {
+        switch game.traderKind {
+        case .scavenger: return "🪤"
+        case .medic: return "⚕️"
+        case .merchant: return "🧙"
+        }
+    }
+
+    private var traderGreeting: String {
+        switch game.traderKind {
+        case .scavenger: return "\"Got anything worth a few coins? I'll take it off your hands.\""
+        case .medic: return "\"You look like you've seen better days. Let me patch you up — for a price.\""
+        case .merchant: return "\"Care to browse my wares... or play a little game?\""
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                Text(isScavenger ? "🪤" : "🧙").font(.system(size: 56))
-                Text(isScavenger
-                     ? "\"Got anything worth a few coins? I'll take it off your hands.\""
-                     : "\"Care to browse my wares... or play a little game?\"")
+                Text(traderEmoji).font(.system(size: 56))
+                Text(traderGreeting)
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -35,7 +51,10 @@ struct TraderView: View {
 
             let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
             LazyVGrid(columns: columns, spacing: 8) {
-                ActionButton("Workbench", "🛠️", prominent: true) { showWorkbench = true }
+                // The medic has no Workbench — its whole identity is the shop.
+                if game.traderOffersWorkbench {
+                    ActionButton("Workbench", "🛠️", prominent: true) { showWorkbench = true }
+                }
                 ActionButton("Games", "🎲", prominent: true) { showGames = true }
                 ActionButton("Use", "🍽️") { sheet = .use }
                 ActionButton("Inventory", "🎒") { sheet = .inventory }

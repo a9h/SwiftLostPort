@@ -20,6 +20,7 @@ public extension GameState {
             let raw = rng.int(in: scaled)
             let damage = player.armour.reducedDamage(raw)
             player.currentHealth -= damage
+            runStats.damageTaken += damage
             say("⚠️ \(flavour(.trapRoom, ["damage": "\(damage)"]))", .warning)
             wearArmour() // Part 2b: trap-room damage wears armour too.
             if player.currentHealth <= 0 {
@@ -41,6 +42,7 @@ public extension GameState {
                 let base = rng.int(in: Balance.RoomModifiers.floodedDamageRange)
                 let damage = max(1, Int((Double(base) * (1.0 - player.armour.floodReduction)).rounded()))
                 player.currentHealth -= damage
+                runStats.damageTaken += damage
                 say("🌊 \(flavour(.floodedRoom, ["bootsNote": bootsNote]))", .warning)
                 if hasBoots { wearArmourSlot(.legs) }
                 if player.currentHealth <= 0 {
