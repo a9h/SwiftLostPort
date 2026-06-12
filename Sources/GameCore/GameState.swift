@@ -327,9 +327,16 @@ public final class GameState: ObservableObject {
         inventory.add(itemID)
         earn(money)
 
+        // Starter weapon guarantee: if the player reaches their first successful
+        // loot still unarmed (the rolled item wasn't a weapon either), hand them
+        // a shovel so early combat isn't fought bare-handed.
+        let starterShovel = roomsExplored < Balance.Loot.starterWeaponRoom && inventory.weapons.isEmpty
+        if starterShovel { inventory.add("shovel") }
+
         var message = flavour(.lootSuccess, ["item": ItemCatalog.label(itemID)])
         if money > 0 { message += " & £\(money)!" }
         if gardenBranch { message += " (plus a fallen branch from the garden)" }
+        if starterShovel { message += " (and a shovel propped against the wall — better than nothing)" }
         say(message, .reward)
     }
 

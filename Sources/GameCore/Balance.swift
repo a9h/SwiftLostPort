@@ -339,6 +339,8 @@ public enum Balance {
         public static let earlySmall = 5...12
         public static let lateBig = 25...40
         public static let lateSmall = 15...25
+        /// Rooms within which a weaponless player is guaranteed a starter shovel.
+        public static let starterWeaponRoom = 15
     }
 
     // MARK: - Depth-weighted loot material modifier (Lost update Part 11)
