@@ -140,10 +140,10 @@ public final class GameState: ObservableObject {
         roomsExplored += 1
         depth = roomsExplored / 2 // depth advances once every two rooms
 
-        // Hunger/thirst decay: 50% chance to lose 1–10 of each.
+        // Hunger/thirst decay: 50% chance to lose 1–7 of each (Lost update Part 7).
         if rng.int(in: 1...100) > 50 {
-            player.hunger -= rng.int(in: 1...10)
-            player.thirst -= rng.int(in: 1...10)
+            player.hunger -= rng.int(in: 1...Balance.Decay.maxPerRoom)
+            player.thirst -= rng.int(in: 1...Balance.Decay.maxPerRoom)
         }
         if player.hunger <= 0 {
             gameOver("You ran out of hunger and died")
@@ -179,7 +179,8 @@ public final class GameState: ObservableObject {
             hasLooted = false
             // The Tunnel trends dark; modifier chances scale with depth (4b).
             let darkBonus = roomName == "Tunnel" ? Balance.RoomModifiers.tunnelDarkBonus : 0
-            roomModifier = RoomModifier.roll(rng.int(in: 1...100), depth: depth, darkBonus: darkBonus)
+            roomModifier = RoomModifier.roll(rng.int(in: 1...100), depth: depth,
+                                             roomsExplored: roomsExplored, darkBonus: darkBonus)
             screen = .room
             say(flavour(.roomEntry, ["room": roomName]), .narration)
             applyRoomEntryEffects()
@@ -219,7 +220,11 @@ public final class GameState: ObservableObject {
         case 2: lucky = rng.int(in: 1...76)
         default: lucky = rng.int(in: 1...51)
         }
-        guard lucky < 33 else {
+        // Early rooms loot more forgivingly (Part 8): <40 up to room 50, else <33.
+        let threshold = roomsExplored <= Balance.Loot.scalingRoom
+            ? Balance.Loot.earlyThreshold
+            : Balance.Loot.lateThreshold
+        guard lucky < threshold else {
             say(flavour(.lootFailure), .info)
             return
         }
@@ -229,16 +234,18 @@ public final class GameState: ObservableObject {
             say(flavour(.lootFailure), .info)
             return
         }
-        let itemID = rng.choice(table)
+        let itemID = pickLootItem(from: table)
 
         // Money brackets (de-overlapped, same intent as the original):
-        // key 101–125 -> £25–40, key 1–49 -> £15–25, key 50–100 -> nothing.
+        // key 101–125 -> big find, key 1–49 -> small find, key 50–100 -> nothing.
+        // Amounts are lower early and restore later (Part 9), crossing at room 50.
+        let early = roomsExplored <= Balance.Loot.scalingRoom
         let key = rng.int(in: 1...125)
         var money = 0
         if key > 100 {
-            money = rng.int(in: 25...40)
+            money = rng.int(in: early ? Balance.Loot.earlyBig : Balance.Loot.lateBig)
         } else if key < 50 {
-            money = rng.int(in: 15...25)
+            money = rng.int(in: early ? Balance.Loot.earlySmall : Balance.Loot.lateSmall)
         }
 
         inventory.add(itemID)
@@ -247,6 +254,32 @@ public final class GameState: ObservableObject {
         var message = flavour(.lootSuccess, ["item": ItemCatalog.label(itemID)])
         if money > 0 { message += " & £\(money)!" }
         say(message, .reward)
+    }
+
+    /// Picks one item from a loot table, applying the depth-weighted material
+    /// modifier (Part 11): early rooms favour branch and dock scrapmetal; later
+    /// rooms do the reverse. The room tables themselves are untouched. If the
+    /// table holds neither material the pick is an unweighted choice (and uses
+    /// the same single RNG draw, so sequencing is unchanged for those rooms).
+    func pickLootItem(from table: [String]) -> String {
+        let hasBranch = table.contains("branch")
+        let hasScrap = table.contains("scrapmetal")
+        guard hasBranch || hasScrap else { return rng.choice(table) }
+
+        let branchFavoured = roomsExplored < Balance.LootWeighting.crossoverRoom
+        let favoured = branchFavoured ? "branch" : "scrapmetal"
+        let disfavoured = branchFavoured ? "scrapmetal" : "branch"
+        let weights = table.map { id -> Int in
+            if id == favoured { return Balance.LootWeighting.favouredWeight }
+            if id == disfavoured { return Balance.LootWeighting.disfavouredWeight }
+            return Balance.LootWeighting.baseWeight
+        }
+        var roll = rng.int(in: 1...weights.reduce(0, +))
+        for (index, weight) in weights.enumerated() {
+            roll -= weight
+            if roll <= 0 { return table[index] }
+        }
+        return table[table.count - 1]
     }
 
     // MARK: - Using items

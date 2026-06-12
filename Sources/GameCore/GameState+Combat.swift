@@ -8,7 +8,7 @@ public extension GameState {
     }
 
     internal func startEncounter() {
-        let difficulty = Difficulty.roll(using: &rng)
+        let difficulty = Difficulty.roll(roomsExplored: roomsExplored, using: &rng)
         let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: false, using: &rng)
         enemy = newEnemy
         encounterPhase = .choosing

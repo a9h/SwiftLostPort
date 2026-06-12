@@ -178,14 +178,52 @@ final class GameCoreTests: XCTestCase {
         XCTAssertNil(again.legs)
     }
 
-    func testEnemyDifficultyRollBrackets() {
-        var rng: GameRandom = ScriptedGameRandom([24, 25, 125, 126, 200, 1])
-        XCTAssertEqual(Difficulty.roll(using: &rng), .hard)    // <25
-        XCTAssertEqual(Difficulty.roll(using: &rng), .medium)  // 25
-        XCTAssertEqual(Difficulty.roll(using: &rng), .medium)  // 125
-        XCTAssertEqual(Difficulty.roll(using: &rng), .easy)    // >125
-        XCTAssertEqual(Difficulty.roll(using: &rng), .easy)
-        XCTAssertEqual(Difficulty.roll(using: &rng), .hard)
+    // MARK: - Enemy tier gating by room (Lost update Part 1)
+
+    func testEnemyTierGatingEasyOnlyBeforeRoom76() {
+        // Anywhere in 0–75 the roll is forced easy regardless of the draw.
+        for room in [0, 1, 30, 75] {
+            for draw in [1, 50, 100] {
+                var rng: GameRandom = ScriptedGameRandom([draw])
+                XCTAssertEqual(Difficulty.roll(roomsExplored: room, using: &rng), .easy,
+                               "room \(room), draw \(draw)")
+            }
+        }
+    }
+
+    func testEnemyTierGatingEasyMediumInterpolation() {
+        // Room 76: mediumWeight 0 → always easy.
+        var rng: GameRandom = ScriptedGameRandom([1])
+        XCTAssertEqual(Difficulty.roll(roomsExplored: 76, using: &rng), .easy)
+
+        // Room 100: mediumWeight = (100-76)/49 ≈ 0.4898 → threshold ~48.98.
+        rng = ScriptedGameRandom([48]); XCTAssertEqual(Difficulty.roll(roomsExplored: 100, using: &rng), .medium)
+        rng = ScriptedGameRandom([49]); XCTAssertEqual(Difficulty.roll(roomsExplored: 100, using: &rng), .easy)
+
+        // Room 125: mediumWeight 1.0 → always medium, never hard.
+        for draw in [1, 50, 100] {
+            rng = ScriptedGameRandom([draw])
+            XCTAssertEqual(Difficulty.roll(roomsExplored: 125, using: &rng), .medium, "draw \(draw)")
+        }
+    }
+
+    func testEnemyTierGatingAllTiersWithClimbingHardAndEasyNeverZero() {
+        // Room 126: hardWeight 0 → no hard yet; non-hard splits 40 easy / 60 medium.
+        var rng: GameRandom = ScriptedGameRandom([1]);   XCTAssertEqual(Difficulty.roll(roomsExplored: 126, using: &rng), .easy)
+        rng = ScriptedGameRandom([40]);  XCTAssertEqual(Difficulty.roll(roomsExplored: 126, using: &rng), .easy)
+        rng = ScriptedGameRandom([41]);  XCTAssertEqual(Difficulty.roll(roomsExplored: 126, using: &rng), .medium)
+        rng = ScriptedGameRandom([100]); XCTAssertEqual(Difficulty.roll(roomsExplored: 126, using: &rng), .medium)
+
+        // Room 426: hardWeight caps at 0.5 → hard for draws ≤50.
+        rng = ScriptedGameRandom([1]);   XCTAssertEqual(Difficulty.roll(roomsExplored: 426, using: &rng), .hard)
+        rng = ScriptedGameRandom([50]);  XCTAssertEqual(Difficulty.roll(roomsExplored: 426, using: &rng), .hard)
+        rng = ScriptedGameRandom([51]);  XCTAssertEqual(Difficulty.roll(roomsExplored: 426, using: &rng), .easy) // 50 + 0.4*50 = 70
+        rng = ScriptedGameRandom([71]);  XCTAssertEqual(Difficulty.roll(roomsExplored: 426, using: &rng), .medium)
+
+        // Hard weight is capped: even absurdly deep it never exceeds 0.5, so easy
+        // and medium always retain a slice.
+        XCTAssertEqual(Balance.EnemyTiers.hardWeight(roomsExplored: 100_000), 0.5)
+        rng = ScriptedGameRandom([51]); XCTAssertNotEqual(Difficulty.roll(roomsExplored: 100_000, using: &rng), .hard)
     }
 
     // MARK: - Depth : room ratio (1:2)
@@ -212,15 +250,45 @@ final class GameCoreTests: XCTestCase {
     // MARK: - Combat rebalance (Part 2: weapon/enemy damage + weighted HP)
 
     func testWeaponDamageArraysUseNewRanges() {
+        // Lost update Part 3: a clean ascending chain with no overlaps.
         let data = GameData.load()
-        XCTAssertEqual(data.weapons["branch"]?.first, 12);    XCTAssertEqual(data.weapons["branch"]?.last, 22)
-        XCTAssertEqual(data.weapons["fork"]?.first, 22);      XCTAssertEqual(data.weapons["fork"]?.last, 32)
-        XCTAssertEqual(data.weapons["bat"]?.first, 30);       XCTAssertEqual(data.weapons["bat"]?.last, 42)
-        XCTAssertEqual(data.weapons["shovel"]?.first, 28);    XCTAssertEqual(data.weapons["shovel"]?.last, 45)
-        XCTAssertEqual(data.weapons["crowbar"]?.first, 35);   XCTAssertEqual(data.weapons["crowbar"]?.last, 50)
-        XCTAssertEqual(data.weapons["knife"]?.first, 40);     XCTAssertEqual(data.weapons["knife"]?.last, 55)
-        XCTAssertEqual(data.weapons["sword"]?.first, 58);     XCTAssertEqual(data.weapons["sword"]?.last, 75)
-        XCTAssertEqual(data.weapons["longsword"]?.first, 80); XCTAssertEqual(data.weapons["longsword"]?.last, 100)
+        let expected: [(String, Int, Int)] = [
+            ("branch", 10, 18), ("fork", 18, 28), ("bat", 26, 38), ("shovel", 34, 48),
+            ("crowbar", 42, 56), ("knife", 50, 65), ("sword", 68, 82), ("longsword", 85, 105),
+        ]
+        for (weapon, lo, hi) in expected {
+            let array = data.weapons[weapon] ?? []
+            XCTAssertEqual(array.first, lo, weapon)
+            XCTAssertEqual(array.last, hi, weapon)
+            // Contiguous integer range, no gaps.
+            XCTAssertEqual(array, Array(lo...hi), weapon)
+        }
+        // A clean ascending chain: each tier's min and max both climb past the
+        // tier below it (the ranges abut/lightly overlap by design).
+        let order = ["branch", "fork", "bat", "shovel", "crowbar", "knife", "sword", "longsword"]
+        for (lower, upper) in zip(order, order.dropFirst()) {
+            XCTAssertGreaterThan(data.weapons[upper]!.first!, data.weapons[lower]!.first!,
+                                 "\(upper) min should exceed \(lower) min")
+            XCTAssertGreaterThan(data.weapons[upper]!.last!, data.weapons[lower]!.last!,
+                                 "\(upper) max should exceed \(lower) max")
+        }
+    }
+
+    func testWeaponDamageUpgradeBonusStillAppliesOnTopOfNewBase() {
+        // The +5/level instance bonus stacks on the new base values (Part 3).
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.depth = 0
+        game.inventory.add("branch")
+        game.inventory.add("scrapmetal", count: 3)
+        game.upgradeWeaponDamage("branch") // level 1 -> +5
+        XCTAssertEqual(game.inventory.upgradeBonus(of: "branch"), 5)
+        game.rng = ScriptedGameRandom([150, 0]) // easy, HP 75
+        game.startEncounter()
+        game.enemy?.hp = 1000
+        game.beginFight()
+        game.rng = ScriptedGameRandom([0, 2]) // branch idx0 = 10, +5 = 15
+        game.attack(with: "branch")
+        XCTAssertEqual(game.enemy?.hp, 1000 - 15)
     }
 
     func testEnemyDamageRangesUseNewValues() {
@@ -314,9 +382,9 @@ final class GameCoreTests: XCTestCase {
         hit.inventory.add("sword")
         hit.startBossEncounter(.cowboy)
         hit.beginFight()
-        hit.rng = ScriptedGameRandom([50, 0, 18]) // no dodge, sword idx0=58, counter 18
+        hit.rng = ScriptedGameRandom([50, 0, 18]) // no dodge, sword idx0=68, counter 18
         hit.attack(with: "sword")
-        XCTAssertEqual(hit.enemy?.hp, 360 - 58)
+        XCTAssertEqual(hit.enemy?.hp, 360 - 68)
     }
 
     func testPlagueDoctorHealsOnceBelowHalf() {
@@ -325,16 +393,16 @@ final class GameCoreTests: XCTestCase {
         game.startBossEncounter(.plagueDoctor)
         game.enemy?.hp = 175 // just above half (170)
         game.beginFight()
-        // sword idx0=80 -> 95 (<170, heals 40 -> 135); counter 20.
+        // longsword idx0=85 -> 90 (<170, heals 40 -> 130); counter 20.
         game.rng = ScriptedGameRandom([0, 40, 20])
         game.attack(with: "longsword")
-        XCTAssertEqual(game.enemy?.hp, 135)
+        XCTAssertEqual(game.enemy?.hp, 130)
         XCTAssertEqual(game.enemy?.hasHealed, true)
         // Below half again: no second heal.
         game.enemy?.hp = 160
-        game.rng = ScriptedGameRandom([0, 20]) // sword idx0=80, counter 20
+        game.rng = ScriptedGameRandom([0, 20]) // longsword idx0=85, counter 20
         game.attack(with: "longsword")
-        XCTAssertEqual(game.enemy?.hp, 80)
+        XCTAssertEqual(game.enemy?.hp, 75)
     }
 
     func testWarlordHitsTwiceAndIsTorchImmune() {
@@ -354,11 +422,11 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("knife")
         game.startBossEncounter(.packmaster)
         game.beginFight()
-        // summon 5(<=20 yes), summonHP 35, summon dmg 10->8; knife idx0=40;
+        // summon 5(<=20 yes), summonHP 35, summon dmg 10->8; knife idx0=50;
         // counter 15 -> 13.
         game.rng = ScriptedGameRandom([5, 35, 10, 0, 15])
         game.attack(with: "knife")
-        XCTAssertEqual(game.enemy?.hp, 340 - 40)
+        XCTAssertEqual(game.enemy?.hp, 340 - 50)
         XCTAssertEqual(game.player.currentHealth, 100 - 8 - 13)
     }
 
@@ -376,12 +444,12 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(game.enemy?.difficulty, .easy)
         XCTAssertEqual(game.enemy?.hp, 75)
 
-        // Attack: knife damage index 5 -> damages[5] = 45; counter-hit raw 12
+        // Attack: knife damage index 5 -> damages[5] = 55; counter-hit raw 12
         // (easy 3–12). afterFlat 10 * (1 - 0.85*90/210) = 10 * 0.6357 = ~6.
         game.rng = ScriptedGameRandom([5, 12])
         game.beginFight()
         game.attack(with: "knife")
-        XCTAssertEqual(game.enemy?.hp, 75 - 45)
+        XCTAssertEqual(game.enemy?.hp, 75 - 55)
         XCTAssertEqual(game.player.currentHealth, 100 - 6)
     }
 
@@ -528,68 +596,119 @@ final class GameCoreTests: XCTestCase {
     // MARK: - Room modifiers (B3)
 
     func testRoomModifierFrequencyByDepth() {
+        // roomsExplored 50 keeps traps allowed (past the room-25 gate, Part 6).
         // Early (depth < 50): trap 1-5, dark 6-10, flooded 11-14, else none.
-        XCTAssertEqual(RoomModifier.roll(1, depth: 0), .trap)
-        XCTAssertEqual(RoomModifier.roll(5, depth: 0), .trap)
-        XCTAssertEqual(RoomModifier.roll(6, depth: 0), .dark)
-        XCTAssertEqual(RoomModifier.roll(10, depth: 0), .dark)
-        XCTAssertEqual(RoomModifier.roll(11, depth: 0), .flooded)
-        XCTAssertEqual(RoomModifier.roll(14, depth: 0), .flooded)
-        XCTAssertEqual(RoomModifier.roll(15, depth: 0), .none)
-        XCTAssertEqual(RoomModifier.roll(100, depth: 0), .none)
+        XCTAssertEqual(RoomModifier.roll(1, depth: 0, roomsExplored: 50), .trap)
+        XCTAssertEqual(RoomModifier.roll(5, depth: 0, roomsExplored: 50), .trap)
+        XCTAssertEqual(RoomModifier.roll(6, depth: 0, roomsExplored: 50), .dark)
+        XCTAssertEqual(RoomModifier.roll(10, depth: 0, roomsExplored: 50), .dark)
+        XCTAssertEqual(RoomModifier.roll(11, depth: 0, roomsExplored: 50), .flooded)
+        XCTAssertEqual(RoomModifier.roll(14, depth: 0, roomsExplored: 50), .flooded)
+        XCTAssertEqual(RoomModifier.roll(15, depth: 0, roomsExplored: 50), .none)
+        XCTAssertEqual(RoomModifier.roll(100, depth: 0, roomsExplored: 50), .none)
 
         // Late (depth >= 50): trap 1-9, dark 10-17, flooded 18-24, else none.
-        XCTAssertEqual(RoomModifier.roll(9, depth: 50), .trap)
-        XCTAssertEqual(RoomModifier.roll(10, depth: 50), .dark)
-        XCTAssertEqual(RoomModifier.roll(17, depth: 50), .dark)
-        XCTAssertEqual(RoomModifier.roll(18, depth: 50), .flooded)
-        XCTAssertEqual(RoomModifier.roll(24, depth: 50), .flooded)
-        XCTAssertEqual(RoomModifier.roll(25, depth: 50), .none)
+        XCTAssertEqual(RoomModifier.roll(9, depth: 50, roomsExplored: 100), .trap)
+        XCTAssertEqual(RoomModifier.roll(10, depth: 50, roomsExplored: 100), .dark)
+        XCTAssertEqual(RoomModifier.roll(17, depth: 50, roomsExplored: 100), .dark)
+        XCTAssertEqual(RoomModifier.roll(18, depth: 50, roomsExplored: 100), .flooded)
+        XCTAssertEqual(RoomModifier.roll(24, depth: 50, roomsExplored: 100), .flooded)
+        XCTAssertEqual(RoomModifier.roll(25, depth: 50, roomsExplored: 100), .none)
         // A value that's "none" early becomes a hazard late.
-        XCTAssertEqual(RoomModifier.roll(16, depth: 0), .none)
-        XCTAssertEqual(RoomModifier.roll(16, depth: 50), .dark)
+        XCTAssertEqual(RoomModifier.roll(16, depth: 0, roomsExplored: 50), .none)
+        XCTAssertEqual(RoomModifier.roll(16, depth: 50, roomsExplored: 100), .dark)
+    }
+
+    func testTrapsNeverSpawnBeforeRoom25() {
+        // Below room 25 a rolled trap becomes a plain room; dark/flooded keep
+        // their exact positions (unaffected).
+        for room in [0, 1, 24] {
+            // Values that would be trap (1-5 early) become none instead.
+            XCTAssertEqual(RoomModifier.roll(1, depth: 0, roomsExplored: room), .none, "room \(room)")
+            XCTAssertEqual(RoomModifier.roll(5, depth: 0, roomsExplored: room), .none, "room \(room)")
+            // Dark (6-10) and flooded (11-14) are unchanged below the gate.
+            XCTAssertEqual(RoomModifier.roll(6, depth: 0, roomsExplored: room), .dark, "room \(room)")
+            XCTAssertEqual(RoomModifier.roll(12, depth: 0, roomsExplored: room), .flooded, "room \(room)")
+            // No input value can yield a trap below the gate.
+            for v in 1...100 {
+                XCTAssertNotEqual(RoomModifier.roll(v, depth: 0, roomsExplored: room), .trap,
+                                  "room \(room) value \(v) must not trap")
+            }
+        }
+        // At room 25 traps are back: early band 1-5.
+        XCTAssertEqual(RoomModifier.roll(1, depth: 0, roomsExplored: 25), .trap)
+        XCTAssertEqual(RoomModifier.roll(5, depth: 0, roomsExplored: 25), .trap)
     }
 
     func testTunnelDarkBiasWidensDarkBand() {
         // With the Tunnel bonus, values that would be flooded/none become dark.
         let bonus = Balance.RoomModifiers.tunnelDarkBonus
         // Early dark band is 6-10; the bonus widens it to 6-48.
-        XCTAssertEqual(RoomModifier.roll(40, depth: 0, darkBonus: bonus), .dark)
-        XCTAssertEqual(RoomModifier.roll(48, depth: 0, darkBonus: bonus), .dark)
+        XCTAssertEqual(RoomModifier.roll(40, depth: 0, roomsExplored: 50, darkBonus: bonus), .dark)
+        XCTAssertEqual(RoomModifier.roll(48, depth: 0, roomsExplored: 50, darkBonus: bonus), .dark)
         // Trap chance is unchanged by the bonus.
-        XCTAssertEqual(RoomModifier.roll(5, depth: 0, darkBonus: bonus), .trap)
+        XCTAssertEqual(RoomModifier.roll(5, depth: 0, roomsExplored: 50, darkBonus: bonus), .trap)
         // Without the bonus, 40 is a normal room.
-        XCTAssertEqual(RoomModifier.roll(40, depth: 0), .none)
+        XCTAssertEqual(RoomModifier.roll(40, depth: 0, roomsExplored: 50), .none)
     }
 
     // MARK: - Loot door luck (rebalance 2d: verify, not rewrite)
 
-    func testLootDoorLuckRangesAndThreshold() {
-        // Confirmed: success when lucky < 33, and fewer doors = a wider (less
-        // lucky) range. Here we verify the shared <33 threshold per door count
-        // by scripting the boundary value and a known item/no-money roll.
+    func testLootThresholdForgivingEarlyStrictLate() {
+        // Lost update Part 8: rooms 0–50 succeed when lucky < 40 (more forgiving);
+        // rooms 51+ revert to < 33. Door-based lucky ranges are unchanged.
+        XCTAssertEqual(Balance.Loot.earlyThreshold, 40)
+        XCTAssertEqual(Balance.Loot.lateThreshold, 33)
         for doors in 1...3 {
-            // lucky 32 -> success, item index 0, key 75 -> no money, flavour 0.
-            let win = startInRoom(doors: doors, thenScript: [32, 0, 75, 0])
-            win.loot()
-            XCTAssertEqual(win.inventory.totalItemCount, 1, "doors \(doors): 32 should succeed")
+            // Early (room 1): 39 succeeds, 40 fails.
+            let earlyWin = startInRoom(doors: doors, thenScript: [39, 0, 75, 0])
+            earlyWin.loot()
+            XCTAssertEqual(earlyWin.inventory.totalItemCount, 1, "doors \(doors): 39 should succeed early")
 
-            // lucky 33 -> failure, nothing gained.
-            let lose = startInRoom(doors: doors, thenScript: [33])
-            lose.loot()
-            XCTAssertTrue(lose.inventory.isEmpty, "doors \(doors): 33 should fail")
+            let earlyLose = startInRoom(doors: doors, thenScript: [40])
+            earlyLose.loot()
+            XCTAssertTrue(earlyLose.inventory.isEmpty, "doors \(doors): 40 should fail early")
+
+            // Late (room 60): 32 succeeds, 33 fails.
+            let lateWin = startInRoom(doors: doors, thenScript: [])
+            lateWin.roomsExplored = 60
+            lateWin.rng = ScriptedGameRandom([32, 0, 75, 0])
+            lateWin.loot()
+            XCTAssertEqual(lateWin.inventory.totalItemCount, 1, "doors \(doors): 32 should succeed late")
+
+            let lateLose = startInRoom(doors: doors, thenScript: [])
+            lateLose.roomsExplored = 60
+            lateLose.rng = ScriptedGameRandom([33])
+            lateLose.loot()
+            XCTAssertTrue(lateLose.inventory.isEmpty, "doors \(doors): 33 should fail late")
         }
     }
 
     func testTrapRoomDealsArmourReducedDamageOnEntry() {
-        // Enter a trap room: decay 50, trader 100, encounter 100, room 4,
-        // doors 1, modifier 1 (trap, early band), trap damage roll 25.
-        let game = makeGame(script: [50, 100, 100, 4, 1, 1, 25])
-        game.startNewGame()
+        // Traps need room >= 25 (Part 6). Walk into room 25 as a trap room:
+        // decay 50, trader 100, encounter 100, room 4, doors 1,
+        // modifier 1 (trap, early band), trap damage roll 15.
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.roomsExplored = 24 // next room is 25 -> traps allowed
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 1, 15])
+        game.takeDoor(1)
+        XCTAssertEqual(game.roomsExplored, 25)
         XCTAssertEqual(game.roomModifier, .trap)
-        // depth 0 (room 1): no scaling. trap range 10...25, roll 25;
-        // no armour -> afterFlat 23 -> 23 damage.
-        XCTAssertEqual(game.player.currentHealth, 100 - 23)
+        // depth 12 (< scalingStartDepth 30): no scaling. New base range 5...15,
+        // roll 15; no armour -> afterFlat 13 -> 13 damage.
+        XCTAssertEqual(game.player.currentHealth, 100 - 13)
+    }
+
+    func testTrapBaseDamageUsesReducedRange() {
+        // Lost update Part 6: base trap range is 5...15 (then depth-scaled,
+        // armour-reduced). The low end of 5 lands a 3-damage hit after flat-2.
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.roomsExplored = 24
+        game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 1, 5]) // trap roll 5 (range floor)
+        game.takeDoor(1)
+        XCTAssertEqual(game.roomModifier, .trap)
+        XCTAssertEqual(game.player.currentHealth, 100 - 3) // 5 - flat 2
+        XCTAssertEqual(Balance.RoomModifiers.trapDamageRange, 5...15)
     }
 
     func testDarkRoomBlocksLootingWithoutTorch() {
@@ -634,11 +753,13 @@ final class GameCoreTests: XCTestCase {
     // MARK: - Hunger / thirst decay
 
     func testDecayHappensWhenRollAboveFifty() {
-        // decay roll 51 -> decay; hunger -7, thirst -3; no trader/enemy; room 4; doors 1
-        let game = makeGame(script: [51, 7, 3, 100, 100, 4, 1, 100])
+        // Lost update Part 7: decay amount is now 1–7. decay roll 51 -> decay;
+        // hunger draw 10 clamps to 7, thirst -3; no trader/enemy; room 4; doors 1.
+        let game = makeGame(script: [51, 10, 3, 100, 100, 4, 1, 100])
         game.startNewGame()
-        XCTAssertEqual(game.player.hunger, 93)
-        XCTAssertEqual(game.player.thirst, 97)
+        XCTAssertEqual(game.player.hunger, 93)  // 100 - min(10, 7)
+        XCTAssertEqual(game.player.thirst, 97)  // 100 - 3
+        XCTAssertEqual(Balance.Decay.maxPerRoom, 7)
     }
 
     func testNoDecayWhenRollFiftyOrBelow() {
@@ -749,23 +870,44 @@ final class GameCoreTests: XCTestCase {
             game.craft(removed) // no-op
             XCTAssertEqual(game.inventory.count(of: removed), 0, "\(removed) should not have been made")
         }
-        // The raw-iron-from-scrap recipe is gone too (iron comes from loot now).
-        XCTAssertNil(game.data.recipes["iron"])
-        XCTAssertFalse(game.canCraft("iron"))
-        // The craftable set is exactly the leather/torch/healing/material list.
+        // The craftable set is exactly the leather/torch/healing/material list,
+        // now including the iron craft recipe (Lost update Part 13).
         XCTAssertEqual(Set(game.data.recipes.keys),
                        ["rope", "leatherCap", "leatherVest", "leatherBoots",
-                        "torch", "bandage", "medkit", "ironBar"])
+                        "torch", "bandage", "medkit", "iron", "ironBar"])
+    }
+
+    // MARK: - Iron crafting recipe (Lost update Part 13)
+
+    func testIronRecipeConvertsScrapmetalToIron() {
+        XCTAssertEqual(Balance.Crafting.ironRecipeCost, 4)
+        let game = startInRoom(doors: 1, thenScript: [])
+        // Gated when short on scrapmetal.
+        game.inventory.add("scrapmetal", count: 3)
+        XCTAssertFalse(game.canCraft("iron"))
+        game.craft("iron") // no-op
+        XCTAssertEqual(game.inventory.count(of: "iron"), 0)
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 3)
+
+        // 4 scrapmetal -> 1 iron, correct deduction.
+        game.inventory.add("scrapmetal") // now 4
+        XCTAssertTrue(game.canCraft("iron"))
+        game.craft("iron")
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
+        XCTAssertEqual(game.inventory.count(of: "iron"), 1)
     }
 
     func testCraftableHealingBandageAndMedkit() {
         let game = startInRoom(doors: 1, thenScript: [])
-        // Bandage: 2 scrapmetal + 1 waterbottle.
+        // Bandage (Lost update Part 2b): 1 rope + 1 waterbottle (not scrapmetal).
         game.inventory.add("scrapmetal", count: 2)
         game.inventory.add("waterbottle")
+        XCTAssertFalse(game.canCraft("bandage")) // scrapmetal no longer counts
+        game.inventory.add("rope")
         XCTAssertTrue(game.canCraft("bandage"))
         game.craft("bandage")
-        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 0)
+        XCTAssertEqual(game.inventory.count(of: "rope"), 0)
+        XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 2) // untouched
         XCTAssertEqual(game.inventory.count(of: "waterbottle"), 0)
         XCTAssertEqual(game.inventory.count(of: "bandage"), 1)
 
@@ -967,10 +1109,11 @@ final class GameCoreTests: XCTestCase {
     // MARK: - Weapon repair (Part 4)
 
     func testWeaponRepairPerWeaponCostRestoreAndCap() {
+        // Lost update Part 5: costs/restores aligned to the new damage tiers.
         let table: [(weapon: String, ingredient: String, count: Int, restore: Int)] = [
             ("branch", "rope", 1, 8), ("fork", "rope", 2, 8),
-            ("bat", "scrapmetal", 2, 10), ("knife", "scrapmetal", 2, 10),
-            ("shovel", "scrapmetal", 3, 10), ("crowbar", "scrapmetal", 3, 12),
+            ("bat", "scrapmetal", 2, 10), ("shovel", "scrapmetal", 2, 10),
+            ("crowbar", "scrapmetal", 3, 12), ("knife", "scrapmetal", 3, 12),
             ("sword", "iron", 3, 15), ("longsword", "iron", 4, 15),
         ]
         for row in table {
@@ -993,8 +1136,8 @@ final class GameCoreTests: XCTestCase {
         game.inventory.add("scrapmetal", count: 3)
         game.upgradeWeaponDamage("knife") // level 1
         for _ in 0..<10 { _ = game.inventory.degradeWeapon("knife") } // 15 -> 5
-        game.inventory.add("scrapmetal", count: 2)
-        game.repairWeapon("knife") // +10 -> capped at 15
+        game.inventory.add("scrapmetal", count: 3) // knife repair costs 3 (Part 5)
+        game.repairWeapon("knife") // +12 -> capped at 15
         let inst = game.inventory.instances(of: "knife").first
         XCTAssertEqual(inst?.durability, 15)
         XCTAssertEqual(inst?.upgradeLevel, 1) // preserved
@@ -1095,21 +1238,33 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Loot money brackets
 
-    func testLootBigMoneyBracket() {
-        // lucky 10 (<33 success), item choice 0, key 125 -> money roll 33, flavour 0
-        let game = startInRoom(doors: 1, thenScript: [10, 0, 125, 33, 0])
-        let moneyBefore = game.player.money
-        game.loot()
-        XCTAssertEqual(game.player.money, moneyBefore + 33)
-        XCTAssertEqual(game.inventory.totalItemCount, 1)
+    func testEarlyMoneyBracketsAreReduced() {
+        // Lost update Part 9: rooms 0–50 pay £10–20 (big) / £5–12 (small).
+        // Big: key 125 -> earlyBig 10...20; roll 33 clamps to 20.
+        let big = startInRoom(doors: 1, thenScript: [10, 0, 125, 33, 0])
+        big.loot()
+        XCTAssertEqual(big.player.money, 50 + 20)
+        XCTAssertEqual(big.inventory.totalItemCount, 1)
+
+        // Small: key 49 -> earlySmall 5...12; roll 20 clamps to 12.
+        let small = startInRoom(doors: 1, thenScript: [10, 0, 49, 20, 0])
+        small.loot()
+        XCTAssertEqual(small.player.money, 50 + 12)
     }
 
-    func testLootSmallMoneyBracket() {
-        // key 49 -> small bracket, roll 20
-        let game = startInRoom(doors: 1, thenScript: [10, 0, 49, 20, 0])
-        let moneyBefore = game.player.money
-        game.loot()
-        XCTAssertEqual(game.player.money, moneyBefore + 20)
+    func testLateMoneyBracketsRestoreFullAmounts() {
+        // Rooms 51+ pay £25–40 (big) / £15–25 (small) — the pre-update values.
+        let big = startInRoom(doors: 1, thenScript: [])
+        big.roomsExplored = 60
+        big.rng = ScriptedGameRandom([10, 0, 125, 33, 0]) // key 125 -> lateBig, roll 33
+        big.loot()
+        XCTAssertEqual(big.player.money, 50 + 33)
+
+        let small = startInRoom(doors: 1, thenScript: [])
+        small.roomsExplored = 60
+        small.rng = ScriptedGameRandom([10, 0, 49, 20, 0]) // key 49 -> lateSmall, roll 20
+        small.loot()
+        XCTAssertEqual(small.player.money, 50 + 20)
     }
 
     func testLootNoMoneyBracket() {
@@ -1338,6 +1493,137 @@ final class GameCoreTests: XCTestCase {
         XCTAssertEqual(game.inventory.upgradeLevel(of: "sword"), 0) // full, fresh
     }
 
+    // MARK: - Weapon conversion chain (Lost update Part 4)
+
+    func testWeaponConversionChainIsCleanLinearLadder() {
+        let expected: [(from: String, cost: Int, to: String)] = [
+            ("fork", 2, "bat"), ("bat", 3, "shovel"), ("shovel", 4, "crowbar"),
+            ("crowbar", 5, "knife"), ("knife", 4, "sword"), ("sword", 6, "longsword"),
+        ]
+        for step in expected {
+            let game = startInRoom(doors: 1, thenScript: [])
+            game.inventory.add(step.from)
+            game.inventory.add("scrapmetal", count: step.cost + 1)
+            XCTAssertTrue(game.canConvertWeapon(step.from), step.from)
+            game.convertWeapon(step.from)
+            XCTAssertEqual(game.inventory.count(of: step.from), 0, step.from)
+            XCTAssertEqual(game.inventory.count(of: step.to), 1, step.to)
+            XCTAssertEqual(game.inventory.count(of: "scrapmetal"), 1, "\(step.from) cost \(step.cost)")
+            // Converted weapon is fresh: full durability, upgrade level 0.
+            let inst = game.inventory.instances(of: step.to).first
+            XCTAssertEqual(inst?.durability, Balance.Durability.maxByWeapon[step.to], step.to)
+            XCTAssertEqual(inst?.upgradeLevel, 0, step.to)
+        }
+    }
+
+    func testRemovedAndAbsentConversions() {
+        // The old crowbar→shovel downgrade is gone (crowbar now climbs to knife).
+        XCTAssertEqual(Balance.Grindstone.conversions["crowbar"]?.result, "knife")
+        // Branch has no conversion; longsword is the end tier.
+        XCTAssertNil(Balance.Grindstone.conversions["branch"])
+        XCTAssertNil(Balance.Grindstone.conversions["longsword"])
+        let game = startInRoom(doors: 1, thenScript: [])
+        game.inventory.add("branch")
+        game.inventory.add("scrapmetal", count: 10)
+        XCTAssertFalse(game.canConvertWeapon("branch"))
+        game.convertWeapon("branch") // no-op
+        XCTAssertEqual(game.inventory.count(of: "branch"), 1)
+    }
+
+    // MARK: - Healable prices (Lost update Parts 2c & 2d)
+
+    func testHealableShopPricesLowered() {
+        let shop = GameData.load().shop
+        XCTAssertEqual(shop.price(of: "bandage"), 18)
+        XCTAssertEqual(shop.price(of: "medicine"), 35)
+        XCTAssertEqual(shop.price(of: "medkit"), 38)
+        XCTAssertEqual(shop.price(of: "pills"), 55)
+    }
+
+    func testHealableScavengerSellPricesLowered() {
+        let game = startInRoom(doors: 1, thenScript: [])
+        XCTAssertEqual(game.sellPrice(of: "bandage"), 9)
+        XCTAssertEqual(game.sellPrice(of: "medicine"), 18)
+        XCTAssertEqual(game.sellPrice(of: "medkit"), 19)
+        XCTAssertEqual(game.sellPrice(of: "pills"), 28)
+    }
+
+    // MARK: - Branch availability (Lost update Part 10)
+
+    func testBranchAvailabilityInLootTables() {
+        let rooms = GameData.load().rooms
+        for room in ["Street", "Tunnel", "Garage", "Garden"] {
+            XCTAssertTrue(rooms[room]?.contains("branch") ?? false, "\(room) should have branch")
+        }
+        // Not added to Kitchen or Bedroom.
+        XCTAssertFalse(rooms["Kitchen"]?.contains("branch") ?? true)
+        XCTAssertFalse(rooms["Bedroom"]?.contains("branch") ?? true)
+        // Bandage was added to Street and Tunnel (Part 2a).
+        XCTAssertTrue(rooms["Street"]?.contains("bandage") ?? false)
+        XCTAssertTrue(rooms["Tunnel"]?.contains("bandage") ?? false)
+    }
+
+    // MARK: - Depth-weighted material modifier (Lost update Part 11)
+
+    func testMaterialWeightModifierFavoursBranchEarlyScrapLate() {
+        // A 2-entry table [branch, scrapmetal]: weights are favoured 9 / disfav 4
+        // (total 13). Roll 1...9 picks the favoured, 10...13 the disfavoured.
+        XCTAssertEqual(Balance.LootWeighting.favouredWeight, 9)
+        XCTAssertEqual(Balance.LootWeighting.disfavouredWeight, 4)
+
+        // Early (room < 40): branch favoured. Table [branch(9), scrapmetal(4)],
+        // total 13: roll 1...9 -> branch, 10...13 -> scrapmetal.
+        let early = startInRoom(doors: 1, thenScript: [])
+        early.roomsExplored = 10
+        early.rng = ScriptedGameRandom([9]);  XCTAssertEqual(early.pickLootItem(from: ["branch", "scrapmetal"]), "branch")
+        early.rng = ScriptedGameRandom([10]); XCTAssertEqual(early.pickLootItem(from: ["branch", "scrapmetal"]), "scrapmetal")
+
+        // Late (room >= 40): scrapmetal favoured. Table [branch(4), scrapmetal(9)],
+        // total 13: roll 1...4 -> branch, 5...13 -> scrapmetal.
+        let late = startInRoom(doors: 1, thenScript: [])
+        late.roomsExplored = 80
+        late.rng = ScriptedGameRandom([4]); XCTAssertEqual(late.pickLootItem(from: ["branch", "scrapmetal"]), "branch")
+        late.rng = ScriptedGameRandom([5]); XCTAssertEqual(late.pickLootItem(from: ["branch", "scrapmetal"]), "scrapmetal")
+    }
+
+    func testMaterialWeightModifierNoEffectWithoutMaterials() {
+        // Kitchen has neither branch nor scrapmetal: an unweighted single draw.
+        let game = startInRoom(doors: 1, thenScript: [])
+        let kitchen = GameData.load().rooms["Kitchen"]!
+        game.rng = ScriptedGameRandom([0]) // choice index 0 -> first entry
+        XCTAssertEqual(game.pickLootItem(from: kitchen), kitchen[0])
+    }
+
+    // MARK: - Flooded room by boots tier (Lost update Part 12 verification)
+
+    func testFloodedDamageByBootsTierAndDurabilityLoss() {
+        // Helper: enter a flooded room with the given boots and a base roll of 15.
+        func floodHit(_ legs: ArmourMaterial?, legsDurability: Int) -> (lost: Int, wore: Bool) {
+            let game = makeGame(script: [50, 100, 100, 4, 1, 12, 15])
+            game.startNewGame() // first flooded entry with no boots (takes 15)
+            if let legs {
+                game.player.armour = Armour(legs: legs, legsDurability: legsDurability)
+            } else {
+                game.player.armour = Armour()
+            }
+            let beforeHP = game.player.currentHealth
+            let beforeDur = legs != nil ? (game.player.armour.currentDurability(in: .legs) ?? 0) : 0
+            game.rng = ScriptedGameRandom([50, 100, 100, 4, 1, 12, 15])
+            game.takeDoor(1)
+            XCTAssertEqual(game.roomModifier, .flooded)
+            let afterDur = legs != nil ? (game.player.armour.currentDurability(in: .legs) ?? 0) : 0
+            return (beforeHP - game.player.currentHealth, beforeDur - afterDur == 1)
+        }
+        XCTAssertEqual(floodHit(nil, legsDurability: 0).lost, 15)              // no boots: full hit
+        XCTAssertEqual(floodHit(.leather, legsDurability: 28).lost, 8)        // round(15*0.5)
+        XCTAssertEqual(floodHit(.scrap, legsDurability: 42).lost, 4)          // round(15*0.25)
+        XCTAssertEqual(floodHit(.iron, legsDurability: 62).lost, 0)          // immune
+        XCTAssertEqual(floodHit(.steel, legsDurability: 85).lost, 0)         // immune
+        // Boots lose 1 durability whenever they mitigate (reduce or negate).
+        XCTAssertTrue(floodHit(.leather, legsDurability: 28).wore)
+        XCTAssertTrue(floodHit(.iron, legsDurability: 62).wore)
+    }
+
     func testWeaponDamageUpgradeDeductionAndCap() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("knife") // cap 3
@@ -1365,9 +1651,9 @@ final class GameCoreTests: XCTestCase {
         game.startEncounter()
         game.enemy?.hp = 1000
         game.beginFight()
-        game.rng = ScriptedGameRandom([0, 3]) // knife idx0=40 (+10), counter raw 3
+        game.rng = ScriptedGameRandom([0, 3]) // knife idx0=50 (+10), counter raw 3
         game.attack(with: "knife")
-        XCTAssertEqual(game.enemy?.hp, 1000 - 50)
+        XCTAssertEqual(game.enemy?.hp, 1000 - 60)
     }
 
     // MARK: - Save / load round trip

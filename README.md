@@ -20,7 +20,7 @@ Targets **iOS 17+** and **macOS 14+**.
 | `GameCore/Resources` | The original's data as bundled JSON (`rooms`, `weapons`, `breakdown`, `stats`, `recipes`, `shop`, `prompts`), decoded with `Codable`. The game stays data-driven. |
 | `LostUI` | SwiftUI views observing `GameState`: HUD (❤️ 🍗 🚰 💷 + rooms/poison/modifier), rooms with tappable 🚪 doors, boss encounters, merchant/scavenger traders, gambling, a reusable tabbed list (`TabbedPanel`), and sheets for inventory/stats/armour/Workbench/equip/drop/use/save. |
 | `LostApp` | Executable app target (`@main`). |
-| `GameCoreTests` | 100 tests: armour curve/tiers/durability/breaking/repair, weapon repair, rope + leather crafting chain, removed-recipe checks, prompt-pool variety, slot specialisation, save migration, depth ratio, weapon/enemy damage & weighted HP, the full boss sequence + specials, room modifiers, the Workbench, hardened blade, tabbed-list sort, scavenger pricing, save/load round-trip, plus a randomized soak run. |
+| `GameCoreTests` | 114 tests: armour curve/tiers/durability/breaking/repair, weapon repair, rope + leather crafting chain, removed-recipe checks, prompt-pool variety, slot specialisation, save migration, depth ratio, weapon/enemy damage & weighted HP, room-gated enemy tiers, the full boss sequence + specials, room modifiers + trap gating, the Workbench, weapon conversion chain, hardened blade, tabbed-list sort, healable/scavenger pricing, loot threshold/money brackets, material-weight modifier, iron crafting, flooded-by-tier, save/load round-trip, plus a randomized soak run. |
 
 ## Build & run
 
@@ -303,3 +303,99 @@ RNG) picks one per event, so the variety never disturbs gameplay determinism.
 `Armour.durability`; `Armour.breakDrop`; `Armour.repairBase` /
 `Armour.repairFloor` / `Armour.repairAmount` / `Armour.repairCost`;
 `WeaponRepair.costs`.
+
+## What changed in the "Lost" update (combat curve, economy, early-game pacing)
+
+A seventh pass: pure tuning + a couple of small data/logic additions. **No save
+shape changed — the format stays v5** (no new per-player state). Every number
+lives in `Balance.swift`; tables stay in their JSON. 17 new/updated tests; all
+114 pass on macOS and the iOS simulator.
+
+### Enemy tier gating by room (Part 1)
+`Difficulty.roll` is now **room-gated** (`Balance.EnemyTiers`). Rooms **0–75**:
+easy only. Rooms **76–125**: a weighted easy↔medium roll, linearly interpolated
+(`mediumWeight = (room−76)/49`, 0 at 76 → 1 at 125). Rooms **126+**: all three,
+with `hardWeight = min(0.5, (room−126)/300)` climbing slowly and the rest split
+40% easy / 60% medium — **easy never disappears**. Exactly one 1–100 roll is
+consumed per call. The per-tier weighted HP roll and depth multipliers still
+apply on top, unchanged.
+
+### Healables — availability + price cuts (Part 2)
+- **More bandages/medkits** in Bathroom, Pharmacy, AbandonedShop; **bandage added
+  to Street and Tunnel** (`rooms.json`).
+- **Bandage recipe** is now **1 rope + 1 waterbottle** (was 2 scrapmetal). Medkit
+  unchanged.
+- **Shop prices** (`shop.json`): bandage £30→**£18**, medicine £40→**£35**, medkit
+  £60→**£38**, pills £70→**£55**.
+- **Scavenger sell prices** (`Scavenger.sellPrices`): bandage→**£9**,
+  medicine→**£18**, medkit→**£19**, pills→**£28**.
+
+### Weapon damage rebalance (Part 3) — `weapons.json`
+A clean ascending chain (the +5/level instance bonus still stacks on top):
+
+| Weapon | Range | Weapon | Range |
+|---|---|---|---|
+| 🌿 Branch | 10–18 | 🔪 Knife | 50–65 |
+| 🍴 Fork | 18–28 | 🗡️ Sword | 68–82 |
+| 🏏 Bat | 26–38 | ⚔️ Longsword | 85–105 |
+| 🪏 Shovel | 34–48 | 🪛 Crowbar | 42–56 |
+
+### Weapon conversion chain (Part 4) — `Grindstone.conversions`
+One linear ladder: **Fork +2🔩→Bat → +3🔩→Shovel → +4🔩→Crowbar → +5🔩→Knife →
++4🔩→Sword → +6🔩→Longsword**. The old **crowbar→shovel downgrade is gone**;
+branch has no conversion; longsword is the end tier. Converts at full durability,
+upgrade level 0.
+
+### Weapon repair costs (Part 5) — `WeaponRepair.costs`
+Re-tiered: branch 1 rope/+8, fork 2 rope/+8, bat **2🔩/+10**, shovel **2🔩/+10**,
+crowbar **3🔩/+12**, knife **3🔩/+12**, sword 3⛓️/+15, longsword 4⛓️/+15.
+
+### Trap rooms (Part 6)
+**Traps can't spawn before room 25** (`trapMinRoom`) — a rolled trap below the
+gate becomes a plain room, leaving dark/flooded bands untouched. **Base trap
+damage 10–25 → 5–15** (still depth-scaled and armour-reduced).
+
+### Hunger/thirst decay (Part 7)
+Trigger chance unchanged (50%/room); when it fires, each of hunger/thirst drops a
+random **1–7** (was 1–10). `Balance.Decay.maxPerRoom = 7`.
+
+### Early loot boost + early money reduction (Parts 8 & 9)
+- Loot success threshold is room-dependent: **`lucky < 40` for rooms 0–50**, then
+  `< 33` at 51+ (`Loot.earlyThreshold` / `lateThreshold`). Door roll ranges
+  unchanged.
+- Money on a successful loot, by bracket and room: **rooms 0–50** big £10–20 /
+  small £5–12; **rooms 51+** big £25–40 / small £15–25 (`Loot.earlyBig` etc.,
+  crossover at room 50).
+
+### Branch availability (Part 10) — `rooms.json`
+**Branch added to Street (weighted heavier), Tunnel and Garage** so rope (and
+leather armour) is reachable sooner. Kitchen/Bedroom unchanged; Garden keeps its
+existing weighting.
+
+### Depth-weighted loot material modifier (Part 11)
+A pick-time re-weighting (`LootWeighting`, tables themselves unchanged): **before
+room 40 branches are favoured** (+50% weight) and scrapmetal docked (−33%);
+**after room 40 the reverse**. Implemented as integer weights (favoured 9,
+disfavoured 4, neutral 6). No effect on tables containing neither material.
+
+### Flooded-room verification (Part 12)
+Confirmed the flooded check reads the **current `ArmourMaterial` of the legs
+slot** (via `floodReduction` / `isFloodImmune`): no boots → full hit;
+leather/scrap → reduced; iron/steel → immune; boots lose 1 durability when
+mitigating. Already correct — no change, now covered by a per-tier test.
+
+### Iron crafting recipe (Part 13) — `recipes.json`
+New Craft-tab recipe **4 scrapmetal → 1 iron** (`Crafting.ironRecipeCost = 4`),
+gated on having ≥4 scrapmetal — giving scrapmetal a mid-game purpose and a
+non-loot route to iron.
+
+### New `Balance.swift` constants
+`EnemyTiers.*` (easyOnlyMaxRoom 75, mediumStartRoom 76, allTiersRoom 126,
+mediumRampEndRoom 125, hardWeightDivisor 300, hardWeightCap 0.5,
+easyShareOfNonHard 0.40, `mediumWeight`/`hardWeight`); `RoomModifiers.trapMinRoom
+= 25` and the new `trapDamageRange = 5...15`; `Decay.maxPerRoom = 7`;
+`Loot.earlyThreshold` / `lateThreshold` / `scalingRoom` / `earlyBig` / `earlySmall`
+/ `lateBig` / `lateSmall`; `LootWeighting.crossoverRoom` /
+`favouredMaterialBonus` / `disfavouredMaterialPenalty` / `baseWeight` /
+`favouredWeight` / `disfavouredWeight`; `Crafting.ironRecipeCost = 4`. Updated:
+`Grindstone.conversions`, `WeaponRepair.costs`, `Scavenger.sellPrices`.

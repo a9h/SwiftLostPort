@@ -25,13 +25,31 @@ public enum Difficulty: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Rolled once when the enemy is first seen:
-    /// randint(1,200) -> <25 hard, 25–125 medium, >125 easy.
-    public static func roll(using rng: inout GameRandom) -> Difficulty {
-        let chance = rng.int(in: 1...200)
-        if chance < 25 { return .hard }
-        if chance <= 125 { return .medium }
-        return .easy
+    /// Room-gated weighted tier selection (Lost update Part 1). Exactly one
+    /// 1…100 roll is consumed regardless of bracket, so RNG sequencing is
+    /// predictable. Easy is never removed — it only becomes less likely late.
+    ///   • rooms 0–75:    only easy.
+    ///   • rooms 76–125:  easy↔medium, linearly interpolated (medium ramps in).
+    ///   • rooms 126+:    all three, hard climbing slowly (capped), easy ≥ some.
+    public static func roll(roomsExplored: Int, using rng: inout GameRandom) -> Difficulty {
+        let r = rng.int(in: 1...100)
+
+        if roomsExplored <= Balance.EnemyTiers.easyOnlyMaxRoom {
+            return .easy
+        }
+
+        if roomsExplored < Balance.EnemyTiers.allTiersRoom {
+            // Easy/medium bracket. mediumWeight: 0 at room 76 → 1 at room 125.
+            let mediumThreshold = Balance.EnemyTiers.mediumWeight(roomsExplored: roomsExplored) * 100.0
+            return Double(r) <= mediumThreshold ? .medium : .easy
+        }
+
+        // All-tiers bracket. Hard takes the bottom slice; the rest splits
+        // easy/medium (medium favoured).
+        let hardThreshold = Balance.EnemyTiers.hardWeight(roomsExplored: roomsExplored) * 100.0
+        if Double(r) <= hardThreshold { return .hard }
+        let easyThreshold = hardThreshold + (100.0 - hardThreshold) * Balance.EnemyTiers.easyShareOfNonHard
+        return Double(r) <= easyThreshold ? .easy : .medium
     }
 }
 

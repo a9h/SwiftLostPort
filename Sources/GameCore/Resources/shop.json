@@ -5,10 +5,10 @@
     "chocolate": 35,
     "waterbottle": 35,
     "cannedfood": 40,
-    "bandage": 30,
-    "medicine": 40,
-    "medkit": 60,
-    "pills": 70
+    "bandage": 18,
+    "medicine": 35,
+    "medkit": 38,
+    "pills": 55
   },
   "weapons": {
     "sword": 100,
