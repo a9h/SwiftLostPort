@@ -800,13 +800,39 @@ final class GameCoreTests: XCTestCase {
 
     // MARK: - Rope material + crafting chain (Part 1)
 
-    func testRopeRecipeYieldsThreePerBranch() {
+    func testRopeRecipeYieldsTwoPerBranch() {
         let game = startInRoom(doors: 1, thenScript: [])
         game.inventory.add("branch")
         XCTAssertTrue(game.canCraft("rope"))
         game.craft("rope")
-        XCTAssertEqual(game.inventory.count(of: "rope"), 3) // 1 branch → 3 rope
+        XCTAssertEqual(game.inventory.count(of: "rope"), 2) // 1 branch → 2 rope
         XCTAssertFalse(game.inventory.has("branch"))         // branch consumed
+        XCTAssertEqual(Balance.Crafting.ropePerBranch, 2)
+    }
+
+    func testGardenLootAlwaysYieldsAGuaranteedBranch() {
+        // Start in a Garden room (no decay, no trader/enemy, plain modifier).
+        let gardenIndex = GameData.load().roomNames.firstIndex(of: "Garden")!
+        func gardenGame(_ rest: [Int]) -> GameState {
+            let g = makeGame(script: [50, 100, 100, gardenIndex, 1, 100] + rest)
+            g.startNewGame()
+            XCTAssertEqual(g.roomName, "Garden")
+            return g
+        }
+
+        // Successful loot: the guaranteed branch PLUS a rolled branch = two.
+        // Garden table [branch(9), shovel(6), mushroom(6), mushroom(6), scrap(4)],
+        // total 31; weighted-pick roll 1 lands on branch. lucky 10 succeeds early;
+        // key 75 -> no money.
+        let two = gardenGame([10, 1, 75])
+        two.loot()
+        XCTAssertEqual(two.inventory.count(of: "branch"), 2)
+
+        // Failed random roll still hands over the guaranteed branch.
+        let one = gardenGame([41]) // lucky 41 (>= 40) -> random loot fails
+        one.loot()
+        XCTAssertEqual(one.inventory.count(of: "branch"), 1)
+        XCTAssertTrue(one.hasLooted)
     }
 
     func testLeatherArmourRecipesDeductRope() {
@@ -1895,11 +1921,13 @@ final class GameCoreTests: XCTestCase {
     func testStatsTrackRoomsAndCrafting() {
         let game = startInRoom(doors: 1, thenScript: []) // room 1
         XCTAssertEqual(game.runStats.roomsExplored, 1)
-        game.inventory.add("branch")
-        game.craft("rope") // 1 branch -> 3 rope
-        XCTAssertEqual(game.runStats.itemsCrafted, 3)
-        game.craft("leatherBoots") // 3 rope -> 1 boots
+        game.inventory.add("branch", count: 2)
+        game.craft("rope") // 1 branch -> 2 rope
+        game.craft("rope") // +2 rope (4 total)
         XCTAssertEqual(game.runStats.itemsCrafted, 4)
+        game.craft("leatherBoots") // 3 rope -> 1 boots
+        XCTAssertEqual(game.runStats.itemsCrafted, 5)
+        XCTAssertEqual(game.inventory.count(of: "leatherBoots"), 1)
     }
 
     func testStatsTrackCombatDamageAndEnemies() {

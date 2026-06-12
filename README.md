@@ -251,7 +251,8 @@ text lives in the new `prompts.json`.
 
 ### Rope material + crafting chain
 - New early material **rope** (🪢, crafting category). **Rope recipe: 1 branch →
-  3 rope** (the multi-output yield is `Balance.Crafting.ropePerBranch`).
+  rope** (the multi-output yield is `Balance.Crafting.ropePerBranch`, currently 2
+  — see the Garden micro-update below).
 - **Leather armour is rope-crafted:** Leather Cap 4 rope, Leather Vest 6 rope,
   Leather Boots 3 rope — the only craftable armour, and the way into each slot.
 - **Torch recipe changed** to `1 branch + 1 rope` (was branch + scrapmetal); the
@@ -456,3 +457,12 @@ the room immediately after a trader, so you can never hit two traders in a row.
   `randint(1, 170) < 20` (~12% per room) — `Trader.overallChancePercent` is
   replaced by `Trader.rarityRollMax = 170` and `Trader.rarityThreshold = 20`. The
   merchant/medic/scavenger split (60/25/15) is unchanged.
+
+## What changed in the "Lost" micro-update (Garden branch)
+
+- **Garden always drops a branch:** looting a Garden room now hands over a
+  guaranteed branch on top of any random loot (and the random roll can also be a
+  branch, so two in one haul is possible) — even on an otherwise empty roll. No
+  RNG change for other rooms.
+- **Rope yield trimmed 3 → 2:** to offset the extra branches, a branch now crafts
+  into **2 rope** (`Balance.Crafting.ropePerBranch = 2`).
