@@ -26,6 +26,7 @@ public extension GameState {
         }
         let yield = Balance.Crafting.outputCount(for: recipeID)
         inventory.add(recipeID, count: yield)
+        runStats.itemsCrafted += yield
         let used = ingredients
             .sorted { $0.key < $1.key }
             .map { "\($0.value)× \(ItemCatalog.label($0.key))" }

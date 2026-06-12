@@ -684,3 +684,29 @@ struct DebugSheet: View {
     }
 }
 
+// MARK: - Lifetime stats (Lost update Part 4: accumulated across all runs)
+
+struct LifetimeStatsSheet: View {
+    @EnvironmentObject private var game: GameState
+
+    var body: some View {
+        SheetScaffold(title: "📊 Lifetime Stats") {
+            Text("Totals across every run you've played.")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 8) {
+                ForEach(game.lifetimeStats.labelledRows, id: \.label) { row in
+                    HStack {
+                        Text(row.label).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(row.value).font(.callout.monospaced().bold())
+                    }
+                    .padding(8)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+}
+

@@ -11,6 +11,7 @@ public extension GameState {
         let difficulty = Difficulty.roll(roomsExplored: roomsExplored, using: &rng)
         let newEnemy = Enemy.make(difficulty: difficulty, depth: depth, isBoss: false, using: &rng)
         enemy = newEnemy
+        runStats.enemiesFought += 1
         encounterPhase = .choosing
         screen = .encounter
         say(flavour(.enemyEncounter), .narration)
@@ -21,6 +22,7 @@ public extension GameState {
     internal func startBossEncounter(_ kind: BossKind) {
         let boss = Enemy.makeBoss(kind, maxDamage: maxDamageFlag)
         enemy = boss
+        runStats.enemiesFought += 1
         encounterPhase = .choosing
         screen = .encounter
         let prefix = maxDamageFlag ? "💀 " : ""
@@ -38,6 +40,7 @@ public extension GameState {
         let raw = rng.int(in: enemy.damageRange)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
+        runStats.damageTaken += damage
         rollPoison(from: enemy)
         wearArmour() // Part 2b: every hit the player takes wears 1–2 slots.
         return damage
@@ -120,6 +123,7 @@ public extension GameState {
             } else {
                 let damage = rng.choice(damages) + inventory.upgradeBonus(of: weaponID)
                 enemy?.hp -= damage
+                runStats.damageDealt += damage
                 say(flavour(.playerHit, ["enemy": enemy?.displayName ?? "the enemy", "damage": "\(damage)"]), .combat)
                 if inventory.degradeWeapon(weaponID) == true {
                     say("Your \(ItemCatalog.name(weaponID)) snapped and broke!", .warning)
@@ -175,6 +179,7 @@ public extension GameState {
             : rng.int(in: Balance.Bosses.packmasterSummonDamage)
         let damage = player.armour.reducedDamage(raw)
         player.currentHealth -= damage
+        runStats.damageTaken += damage
         say("The Packmaster lets out a howl — a \(summonHP)-HP creature lunges and bites for \(damage)!", .combat)
     }
 
@@ -192,8 +197,9 @@ public extension GameState {
 
     private func defeatEnemy(_ enemy: Enemy) {
         let coins = rng.int(in: enemy.coinRange)
-        player.money += coins
+        earn(coins)
         if let kind = enemy.boss {
+            runStats.bossesDefeated += 1
             applyBossDrop(kind)
             say("You felled \(kind.displayName)! It dropped £\(coins) 💷", .reward)
             advanceBossSequence()

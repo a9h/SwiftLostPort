@@ -399,3 +399,49 @@ easyShareOfNonHard 0.40, `mediumWeight`/`hardWeight`); `RoomModifiers.trapMinRoo
 `favouredMaterialBonus` / `disfavouredMaterialPenalty` / `baseWeight` /
 `favouredWeight` / `disfavouredWeight`; `Crafting.ironRecipeCost = 4`. Updated:
 `Grindstone.conversions`, `WeaponRepair.costs`, `Scavenger.sellPrices`.
+
+## What changed in the "Lost" update (Medic trader, trader pacing, stats screens)
+
+An eighth pass: a third trader, reweighted trader spawning, a no-back-to-back
+trader rule, and full run/lifetime statistics with a detailed death screen.
+Save format is now **v6** and loads v1–v5 saves gracefully (new fields default
+to empty/false). 12 new tests; all 126 pass on macOS and the iOS simulator.
+
+### Medic trader (Part 1)
+A third trader type (⚕️) alongside merchant and scavenger, sharing the same
+flow. The medic **sells only** (no buying from the player) and has **no
+Workbench**. Each visit it stocks **3 distinct items** from {bandage, medkit,
+medicine, pills}, priced at a **flat 25% discount** off the merchant price —
+derived at runtime via `price(of:)` (medic-aware) from `Balance.Medic.priceMultiplier`,
+so it stays in sync if merchant prices change. The offered items ride in
+`shopStock` and persist through save/load like any trader state.
+
+### Trader spawn probabilities (Part 2)
+Trader rooms now fire on a **40% overall** gate (`Balance.Trader.overallChancePercent`),
+and the type within is weighted **Merchant 60 / Medic 25 / Scavenger 15**
+(`merchantWeight` / `medicWeight` / `scavengerWeight`, summing to 100). The old
+flat `Scavenger.chancePercent` split was removed.
+
+### No consecutive trader rooms (Part 3)
+A `lastRoomWasTrader` flag (persisted in the save) suppresses the trader roll for
+the room immediately after a trader, so you can never hit two traders in a row.
+
+### Detailed death screen + lifetime stats (Part 4)
+- **Per-run stats** tracked on `GameState.runStats` (persisted in the save):
+  rooms explored, enemies fought, bosses defeated, damage dealt, damage taken,
+  items crafted, money earned, money spent — plus a per-run **cause of death**.
+  Money changes route through `earn`/`spend` helpers; combat/loot/crafting feed
+  the rest.
+- **Death screen** expands to show the full per-run stat set and the cause of
+  death below the final money.
+- **Lifetime stats** screen reachable from the **main menu** shows the same set
+  accumulated across every run. They live in a store **separate from the save
+  slots** (`lifetime.json` on disk; a dedicated field in `MemorySaveStore`), so
+  they survive death, new games and save overwrites. Each death folds the run's
+  stats into the lifetime totals (`RunStats.+`) before the run is discarded.
+
+### New `Balance.swift` constants
+`Trader.overallChancePercent = 40`, `Trader.merchantWeight = 60`,
+`Trader.medicWeight = 25`, `Trader.scavengerWeight = 15`; `Medic.pool`,
+`Medic.itemCount = 3`, `Medic.discountPercent = 25`, `Medic.priceMultiplier`
+(0.75, derived). Removed: `Scavenger.chancePercent`.
